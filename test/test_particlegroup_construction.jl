@@ -72,12 +72,12 @@ using AtomicAndPhysicalConstants: Species, massof
 
         @testset "single_particle with custom values" begin
             pg = single_particle(
-                x=1e-3, px=5e5, y=2e-3, py=-3e5,
+                x=1, px=5e5, y=2e-3, py=-3e5,
                 z=0.01, pz=1e9, t=1e-12,
                 weight=2e-15, status=0, species=Species("proton")
             )
 
-            @test pg.x  == [1e-3]
+            @test pg.x  == [1.0]
             @test pg.px == [5e5]
             @test pg.y  == [2e-3]
             @test pg.py == [-3e5]

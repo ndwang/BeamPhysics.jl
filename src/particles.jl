@@ -96,6 +96,7 @@ function single_particle(;
     x=0.0, px=0.0, y=0.0, py=0.0, z=0.0, pz=0.0,
     t=0.0, weight=1.0, status=1, species=Species("electron")
 )
+    x, px, y, py, z, pz, t, weight = promote(x, px, y, py, z, pz, t, weight)
     return ParticleGroup(
         [x], [px], [y], [py], [z], [pz], [t],
         [status], [weight], species, [1]
