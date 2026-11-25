@@ -174,6 +174,12 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
             @test shifted_ref.etap ≈ tw.etap
         end
 
+        @testset "twiss lowest-action fraction" begin
+            pg = _STAT_BEAM[1:101]
+            core = pg[sortperm(Jx(pg))[1:90]]
+            @test twiss(pg; fraction=0.9) == twiss(core)
+        end
+
         @testset "twiss Dict — single plane" begin
             pg = _STAT_BEAM
             d = twiss(pg; plane="x")

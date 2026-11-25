@@ -102,7 +102,7 @@ function twiss_dispersion(particle_group; plane="x", fraction=1, p0c=nothing)
     P = particle_group
 
     if fraction < 1
-        P = P[sortperm(P["J" * plane])][1:Int(fraction * length(P))]
+        P = P[sortperm(P["J" * plane])][1:trunc(Int, fraction * length(P))]
     end
 
     if isnothing(p0c)
