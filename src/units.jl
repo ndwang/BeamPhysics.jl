@@ -208,9 +208,9 @@ const NAMED_UNITS = [
     PMDUnit("V",      1.0,                "electric_potential"),
     PMDUnit("c",      C_LIGHT,            "velocity"),
     PMDUnit("m/s",    1.0,                "velocity"),
-    PMDUnit("eV",     E_CHARGE,           "energy"),
+    PMDUnit("eV",     J_PER_EV,           "energy"),
     PMDUnit("J",      1.0,                "energy"),
-    PMDUnit("eV/c",   E_CHARGE/C_LIGHT,   "momentum"),
+    PMDUnit("eV/c",   J_PER_EV/C_LIGHT,   "momentum"),
     PMDUnit("W",      1.0, (2., 1., -3., 0., 0., 0., 0.)),          # power
     PMDUnit("T",      1.0,                "magnetic_field"),
 ]

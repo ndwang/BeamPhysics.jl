@@ -4,7 +4,7 @@ module BeamPhysics
 using HDF5
 using StatsBase: weights, fit, Histogram
 using LinearAlgebra: det
-using AtomicAndPhysicalConstants: Species, massof, chargeof, C_LIGHT, E_CHARGE
+using AtomicAndPhysicalConstants: Species, massof, chargeof, C_LIGHT, EV_PER_J, J_PER_EV
 import Statistics
 import Statistics: mean, std
 import StatsBase
