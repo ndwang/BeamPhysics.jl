@@ -93,6 +93,9 @@ Plane must be 'x' or 'y'.
 
 p0c is the reference momentum. If not given, the mean p will be used.
 
+For `fraction < 1`, select the lowest-action particles by count, not by charge.
+The selected particles still contribute with their weights when computing Twiss.
+
 Returns a NamedTuple with fields suffixed by plane:
     alpha, beta, gamma, emit, eta, etap, norm_emit
 """
