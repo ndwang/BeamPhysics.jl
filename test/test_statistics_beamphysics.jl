@@ -167,6 +167,11 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
             @test tw.emit > 0
             @test hasproperty(tw, :norm_emit)
             @test tw.norm_emit > 0
+
+            shifted_ref = twiss_dispersion(pg; plane="x", p0c=2 * pg["mean_p"])
+            @test shifted_ref.norm_emit ≈ tw.norm_emit
+            @test shifted_ref.eta ≈ 2 * tw.eta
+            @test shifted_ref.etap ≈ tw.etap
         end
 
         @testset "twiss Dict — single plane" begin

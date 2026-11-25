@@ -111,14 +111,14 @@ function twiss_dispersion(particle_group; plane="x", fraction=1, p0c=nothing)
 
     x = P[plane]
     xp = P["p" * plane] ./ p0c
-    d = P["p"] ./ P["mean_p"]  # - 1
+    d = P["p"] ./ p0c
 
     sigma3 = StatsBase.cov([x xp d], weights(P.weight); corrected=false)
 
     tw = twiss_dispersion(sigma3)
 
     # Add norm_emit (no plane suffix yet)
-    norm_emit = tw.emit * P["mean_p"] / mass(P)
+    norm_emit = tw.emit * p0c / mass(P)
 
     return (; tw..., norm_emit = norm_emit)
 end
