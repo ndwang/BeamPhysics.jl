@@ -397,6 +397,7 @@ function Base.getindex(pg::AbstractParticleGroup, x)
 end
 
 # Integer/range indexing: ParticleGroup returns a copy, ParticleGroupView returns a view
+Base.getindex(pg::AbstractParticleGroup, i::Integer) = pg[i:i]
 _index_particles(pg::ParticleGroup, x) = particle_parts(pg, x)
 _index_particles(pg::ParticleGroupView, x) = ParticleGroupView(pg, x)
 

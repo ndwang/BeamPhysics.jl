@@ -130,6 +130,19 @@ using AtomicAndPhysicalConstants: Species, massof
             @test length(sub) == 2
             @test sub.x == [1.0, 2.0]
             @test sub.pz == pg.pz[1:2]
+
+            pg.id[2] = 42
+            particle = pg[2]
+            @test particle isa ParticleGroup
+            @test particle.id == [42]
+            @test particle.x == [2.0]
+            particle.x[1] = 5.0
+            @test pg.x[2] == 2.0
+
+            particle_view = view(pg, 1:3)[2]
+            @test particle_view isa ParticleGroupView
+            particle_view.x[1] = 5.0
+            @test pg.x[2] == 5.0
         end
 
         @testset "vector indexing" begin
