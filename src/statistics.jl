@@ -186,7 +186,7 @@ end
 """
     particle_amplitude(particle_group; plane="x", twiss=nothing, mass_normalize=true)
 
-Returns the normalized amplitude array from a ParticleGroup for a given plane.
+Returns the action J = (x_bar^2 + p_bar^2)/2 for each particle in the given plane.
 """
 function particle_amplitude(particle_group; plane="x", twiss=nothing, mass_normalize=true)
     x = particle_group[plane]

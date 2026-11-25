@@ -280,12 +280,10 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
             @test length(pxn) == length(pg)
         end
 
-        @testset "x_bar^2 + px_bar^2 ≈ 2*Jx" begin
+        @testset "Transverse actions" begin
             pg = _STAT_BEAM
-            xb  = normalized_particle_coordinate(pg, "x")
-            pxb = normalized_particle_coordinate(pg, "px")
-            Jvals = particle_amplitude(pg; plane="x")
-            @test xb.^2 .+ pxb.^2 ≈ 2 .* Jvals  rtol=1e-8
+            @test isapprox(2 .* Jx(pg), x_bar(pg).^2 .+ px_bar(pg).^2)
+            @test isapprox(2 .* Jy(pg), y_bar(pg).^2 .+ py_bar(pg).^2)
         end
     end
 

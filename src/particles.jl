@@ -148,8 +148,8 @@ px_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, "px")
 y_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, "y")
 py_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, "py")
 
-Jx(pg::AbstractParticleGroup) = hypot.(x_bar(pg), px_bar(pg))
-Jy(pg::AbstractParticleGroup) = hypot.(y_bar(pg), py_bar(pg))
+Jx(pg::AbstractParticleGroup) = particle_amplitude(pg; plane="x")
+Jy(pg::AbstractParticleGroup) = particle_amplitude(pg; plane="y")
 
 # ---- set_charge! ----
 

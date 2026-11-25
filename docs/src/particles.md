@@ -126,5 +126,5 @@ All derived properties are callable as `f(pg)` **and** accessible via `pg["key"]
 | `px_bar(pg)` | `pg["px_bar"]` | normalized px coordinate per particle | m^(1/2) |
 | `y_bar(pg)` | `pg["y_bar"]` | normalized y coordinate per particle | m^(1/2) |
 | `py_bar(pg)` | `pg["py_bar"]` | normalized py coordinate per particle | m^(1/2) |
-| `Jx(pg)` | `pg["Jx"]` | x action amplitude per particle | m |
-| `Jy(pg)` | `pg["Jy"]` | y action amplitude per particle | m |
+| `Jx(pg)` | `pg["Jx"]` | x action per particle | m |
+| `Jy(pg)` | `pg["Jy"]` | y action per particle | m |
