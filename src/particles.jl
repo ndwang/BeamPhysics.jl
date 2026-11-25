@@ -110,7 +110,7 @@ Base.length(pg::AbstractParticleGroup) = length(pg.x)
 nalive(pg::AbstractParticleGroup) = count(pg.status .== 1)
 ndead(pg::AbstractParticleGroup) = length(pg) - nalive(pg)
 mass(pg::AbstractParticleGroup) = massof(pg.species)
-species_charge(pg::AbstractParticleGroup) = chargeof(pg.species)
+species_charge(pg::AbstractParticleGroup) = chargeof(pg.species; C=true)
 charge(pg::AbstractParticleGroup) = sum(pg.weight)
 
 momentum(pg::AbstractParticleGroup) = sqrt.(pg.px.^2 .+ pg.py.^2 .+ pg.pz.^2)

@@ -1,4 +1,4 @@
-using AtomicAndPhysicalConstants: Species, massof, chargeof, C_LIGHT
+using AtomicAndPhysicalConstants: Species, massof, C_LIGHT, E_CHARGE
 import Statistics: mean, std
 import StatsBase
 
@@ -77,7 +77,7 @@ const _PROP_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
         @testset "mass / species_charge / charge" begin
             pg = _PROP_BEAM
             @test mass(pg) == massof(Species("electron"))
-            @test species_charge(pg) == chargeof(Species("electron"))
+            @test species_charge(pg) == -E_CHARGE
             @test charge(pg) ≈ sum(pg.weight)
         end
 

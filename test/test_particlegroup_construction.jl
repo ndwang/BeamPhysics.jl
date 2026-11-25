@@ -1,4 +1,4 @@
-using AtomicAndPhysicalConstants: Species, massof, chargeof
+using AtomicAndPhysicalConstants: Species, massof
 
 @testset "ParticleGroup Construction" begin
 
@@ -106,11 +106,11 @@ using AtomicAndPhysicalConstants: Species, massof, chargeof
     end
 
     @testset "Species handling" begin
-        for name in ("electron", "proton")
+        for (name, charge_C) in (("electron", -1.602176634e-19), ("proton", 1.602176634e-19))
             pg = single_particle(species=Species(name))
             @test nameof(pg.species) == name
             @test mass(pg) == massof(Species(name))
-            @test species_charge(pg) == chargeof(Species(name))
+            @test species_charge(pg) == charge_C
         end
     end
 
