@@ -5,6 +5,27 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
 
 @testset "FieldMesh" begin
 
+    @testset "Linear interpolation" begin
+        fm = FieldMesh(FIELDMESH_FILE)
+        itp = interpolator(fm, "Bz")
+        r, theta, z = coord_vecs(fm)
+        bz = fm["Bz"]
+        @test itp(0, theta[1], z[end]) ≈ bz[1, 1, end]
+        @test itp((r[2] + r[3]) / 2, theta[1], (z[200] + z[201]) / 2) ≈
+            sum(bz[2:3, 1, 200:201]) / 4
+        @test_throws BoundsError itp(r[1], theta[1] + 0.1, z[1])
+        @test_throws BoundsError itp(r[1], theta[1], z[1] - 0.001)
+
+        ex = [x + 2y + 3z + im * (x - z)
+              for x in (0, 1), y in (0, 2, 4), z in (-2, 0, 2, 4)]
+        rf = FieldMesh("rectangular", ("x", "y", "z"), (0.0, 0.0, -2.0),
+                       (1.0, 2.0, 2.0), size(ex), "center", 1, 1.3e9, 0.25, 2.0,
+                       Dict("electricField/x" => ex))
+        @test interpolate(rf, "Ex", (0.25, 3, 1.5)) ≈ -2.5 - 21.5im
+        @test interpolate(rf, "abs_Ex", (0.25, 0, -2)) ≈
+            0.75 * abs(rf["Ex"][1, 1, 1]) + 0.25 * abs(rf["Ex"][2, 1, 1])
+    end
+
     @testset "Construction from HDF5 file" begin
         fm = FieldMesh(FIELDMESH_FILE)
         @test fm isa FieldMesh

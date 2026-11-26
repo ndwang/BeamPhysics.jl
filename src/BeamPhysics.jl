@@ -2,6 +2,7 @@ module BeamPhysics
 
 # External dependencies
 using HDF5
+import Interpolations
 using StatsBase: weights
 using LinearAlgebra: det
 using AtomicAndPhysicalConstants: Species, massof, chargeof, C_LIGHT, EV_PER_J, J_PER_EV, H_BAR
@@ -20,6 +21,7 @@ include("plotting.jl")
 # Export key types and constructors
 export ParticleGroup, ParticleGroupView, single_particle
 export FieldMesh, write_fieldmesh
+export interpolator, interpolate
 export axis_index, mins, maxs, deltas, coord_vec, coord_vecs
 export scale, phase, factor, frequency
 export is_static, is_pure_electric, is_pure_magnetic

@@ -406,6 +406,46 @@ function Base.getindex(fm::FieldMesh, key::String)
     return op === nothing ? dat : op.(dat)
 end
 
+"""
+    interpolator(fm::FieldMesh, key::String)
+
+Build a reusable linear interpolator for `fm[key]`. Call it as `itp(x, y, z)`
+for rectangular meshes or `itp(r, theta, z)` for cylindrical meshes. A
+singleton axis accepts only its stored coordinate. Queries outside the grid
+throw `BoundsError`.
+
+Rebuild the interpolator after changing the mesh.
+"""
+function interpolator(fm::FieldMesh, key::String)
+    dat = fm[key]
+    origin = fm.grid_origin
+    singleton = map(==(1), fm.grid_size)
+    modes = map(s -> s ? Interpolations.NoInterp() :
+                         Interpolations.BSpline(Interpolations.Linear()), singleton)
+    grid = ntuple(3) do i
+        singleton[i] ? axes(dat, i) :
+            range(origin[i]; step=fm.grid_spacing[i], length=fm.grid_size[i])
+    end
+    itp = Interpolations.scale(Interpolations.interpolate(dat, modes), grid...)
+    return function (x::Real, y::Real, z::Real)
+        point = (x, y, z)
+        indices = ntuple(3) do i
+            singleton[i] || return point[i]
+            point[i] == origin[i] || throw(BoundsError(itp, point))
+            return 1
+        end
+        return itp(indices...)
+    end
+end
+
+"""
+    interpolate(fm::FieldMesh, key::String, point::NTuple{3,Real})
+
+Linearly interpolate a field at one point in the mesh's native coordinates.
+Use `interpolator` to evaluate multiple points without rebuilding.
+"""
+interpolate(fm::FieldMesh, key::String, point::NTuple{3,Real}) = interpolator(fm, key)(point...)
+
 # ── I/O ───────────────────────────────────────────────────────────────────
 
 """
