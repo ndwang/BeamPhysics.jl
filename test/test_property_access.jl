@@ -1,66 +1,8 @@
-using AtomicAndPhysicalConstants: Species, massof, C_LIGHT, E_CHARGE
-import Statistics: mean, std
-import StatsBase
+using AtomicAndPhysicalConstants: Species, massof, E_CHARGE
 
-const _PROP_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
+const _PROP_BEAM = read_particle_group(joinpath(@__DIR__, "initial_particles.h5"))
 
 @testset "Property Access" begin
-
-    @testset "pg[key] direct fields" begin
-        pg = _PROP_BEAM
-
-        @test pg["x"]      === pg.x
-        @test pg["px"]     === pg.px
-        @test pg["y"]      === pg.y
-        @test pg["py"]     === pg.py
-        @test pg["z"]      === pg.z
-        @test pg["pz"]     === pg.pz
-        @test pg["t"]      === pg.t
-        @test pg["status"] === pg.status
-        @test pg["weight"] === pg.weight
-        @test pg["id"]     === pg.id
-    end
-
-    @testset "pg[\"z/c\"]" begin
-        pg = single_particle(z=0.3)
-        @test pg["z/c"] ≈ [0.3 / C_LIGHT]
-    end
-
-    @testset "Statistical prefix keys" begin
-        @testset "sigma_" begin
-            pg = _PROP_BEAM
-            @test pg["sigma_x"] ≈ std(pg, "x")
-            @test pg["sigma_x"] > 0
-        end
-
-        @testset "mean_" begin
-            pg = _PROP_BEAM
-            @test pg["mean_x"] ≈ mean(pg, "x")
-        end
-
-        @testset "min_ / max_ / ptp_" begin
-            pg = _PROP_BEAM
-            @test pg["min_x"]  ≈ minimum(pg.x)
-            @test pg["max_x"]  ≈ maximum(pg.x)
-            @test pg["ptp_x"]  ≈ maximum(pg.x) - minimum(pg.x)
-        end
-
-        @testset "delta_" begin
-            pg = _PROP_BEAM
-            d = pg["delta_x"]
-            @test length(d) == length(pg)
-            @test d ≈ pg.x .- mean(pg, "x")
-        end
-
-        @testset "cov_" begin
-            pg = _PROP_BEAM
-            c = pg["cov_x_px"]
-            @test isa(c, Number)
-
-            c_xx = pg["cov_x_x"]
-            @test c_xx ≈ pg["sigma_x"]^2  rtol=1e-10
-        end
-    end
 
     @testset "Standalone functions" begin
         @testset "nalive / ndead" begin
@@ -149,7 +91,7 @@ const _PROP_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
         @testset "average_current" begin
             pg = _PROP_BEAM
             I = average_current(pg)
-            @test I ≈ charge(pg) / ptp(pg, "t")
+            @test I ≈ charge(pg) / ptp(pg.t)
         end
     end
 
@@ -177,32 +119,6 @@ const _PROP_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
             @test all(jx .>= 0)
             @test all(jy .>= 0)
         end
-    end
-
-    @testset "pg[key] matches standalone function" begin
-        pg = _PROP_BEAM
-
-        @test pg["energy"]         == energy(pg)
-        @test pg["kinetic_energy"] == kinetic_energy(pg)
-        @test pg["p"]              == momentum(pg)
-        @test pg["gamma"]          == gamma(pg)
-        @test pg["beta"]           == beta(pg)
-        @test pg["beta_x"]         == beta_x(pg)
-        @test pg["beta_y"]         == beta_y(pg)
-        @test pg["beta_z"]         == beta_z(pg)
-        @test pg["xp"]             == xp(pg)
-        @test pg["yp"]             == yp(pg)
-        @test pg["r"]              == r(pg)
-        @test pg["theta"]          == theta(pg)
-        @test pg["pr"]             == pr(pg)
-        @test pg["ptheta"]         == ptheta(pg)
-        @test pg["Lz"]             == Lz(pg)
-        @test pg["n_particle"]     == length(pg)
-        @test pg["n_alive"]        == nalive(pg)
-        @test pg["n_dead"]         == ndead(pg)
-        @test pg["mass"]           == mass(pg)
-        @test pg["species_charge"] == species_charge(pg)
-        @test pg["charge"]         == charge(pg)
     end
 
     @testset "Coordinate checks" begin

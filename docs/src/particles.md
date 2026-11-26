@@ -14,55 +14,27 @@ See [`ParticleGroup`](@ref) in the [API Reference](@ref api) for the full type d
 using BeamPhysics
 
 # Load from an openPMD HDF5 file
-pg = ParticleGroup("particles.h5")
+pg = read_particle_group("particles.h5")
 
 # Create a single test particle
 pg = single_particle(z=0.01, pz=1e6)
 
 # Construct directly
 using AtomicAndPhysicalConstants: Species
-pg = ParticleGroup(x, px, y, py, z, pz, t, status, weight, Species("electron"))
+pg = ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species=Species("electron"))
 ```
 
-See [`single_particle`](@ref), [`ParticleGroup`](@ref) (file or HDF5 group constructors).
+See [`single_particle`](@ref) and [`read_particle_group`](@ref).
 
 ## Accessing Properties
 
-Stored fields and derived properties can be accessed as **direct function calls**
-or via **string-based indexing** — both are equivalent:
+Stored columns are available as properties (for example, `pg.x` and `pg.weight`).
+Derived quantities are functions: `energy(pg)` returns one value per particle,
+while `charge(pg)` and `norm_emit_x(pg)` return one value for the group.
 
-```julia
-# Direct function calls
-energy(pg)       # total energy array [eV]
-gamma(pg)        # Lorentz factor array
-r(pg)            # cylindrical radius array [m]
-norm_emit_x(pg)  # normalized x emittance scalar [m]
-charge(pg)       # total charge scalar [C]
+See the [statistics guide](statistics.md) for weighted group reductions.
 
-# Equivalent string-based indexing
-pg["energy"]
-pg["gamma"]
-pg["r"]
-pg["norm_emit_x"]
-pg["charge"]
-```
-
-Stored fields are accessible as struct fields (`pg.x`, `pg.pz`, etc.) or via `pg["x"]`.
-
-String indexing additionally supports statistical prefixes that have no direct
-function equivalent:
-
-```julia
-pg["sigma_x"]    # std(x), weighted
-pg["mean_pz"]    # mean(pz), weighted
-pg["min_x"]      # minimum x
-pg["max_x"]      # maximum x
-pg["ptp_z"]      # peak-to-peak range of z
-pg["cov_x_px"]   # covariance of x and px
-pg["delta_x"]    # x .- mean(x) per particle
-```
-
-## Slicing
+## Selecting Particles
 
 ```julia
 pg[1:100]        # first 100 particles (returns a copy)
@@ -89,42 +61,42 @@ set_charge!(pg, 1e-12) # rescale weights to total charge = 1 pC
 ## Splitting
 
 ```julia
-chunks = split_particles(pg; n_chunks=100, key="z")
+groups = slices(pg; by=:z, n=100)
 ```
 
 ## Derived Properties
 
-All derived properties are callable as `f(pg)` **and** accessible via `pg["key"]`.
+Use the following functions to calculate derived quantities.
 
-| Function call | String key | Returns | Units |
-|---|---|---|---|
-| `nalive(pg)` | `pg["n_alive"]` | number of alive particles | — |
-| `ndead(pg)` | `pg["n_dead"]` | number of dead particles | — |
-| `charge(pg)` | `pg["charge"]` | total charge | C |
-| `mass(pg)` | `pg["mass"]` | particle rest mass | eV |
-| `species_charge(pg)` | `pg["species_charge"]` | elementary charge of species | C |
-| `average_current(pg)` | `pg["average_current"]` | average current | A |
-| `momentum(pg)` | `pg["p"]` | total momentum per particle | eV/c |
-| `energy(pg)` | `pg["energy"]` | total energy per particle | eV |
-| `kinetic_energy(pg)` | `pg["kinetic_energy"]` | kinetic energy per particle | eV |
-| `gamma(pg)` | `pg["gamma"]` | Lorentz factor per particle | — |
-| `beta(pg)` | `pg["beta"]` | `\|v\|/c` per particle | — |
-| `beta_x(pg)` | `pg["beta_x"]` | `vx/c` per particle | — |
-| `beta_y(pg)` | `pg["beta_y"]` | `vy/c` per particle | — |
-| `beta_z(pg)` | `pg["beta_z"]` | `vz/c` per particle | — |
-| `xp(pg)` | `pg["xp"]` | `px/pz` per particle | rad |
-| `yp(pg)` | `pg["yp"]` | `py/pz` per particle | rad |
-| `r(pg)` | `pg["r"]` | cylindrical radius per particle | m |
-| `theta(pg)` | `pg["theta"]` | azimuthal angle per particle | rad |
-| `pr(pg)` | `pg["pr"]` | radial momentum per particle | eV/c |
-| `ptheta(pg)` | `pg["ptheta"]` | azimuthal momentum per particle | eV/c |
-| `Lz(pg)` | `pg["Lz"]` | angular momentum per particle | m·eV/c |
-| `norm_emit_x(pg)` | `pg["norm_emit_x"]` | normalized x emittance | m |
-| `norm_emit_y(pg)` | `pg["norm_emit_y"]` | normalized y emittance | m |
-| `norm_emit_4d(pg)` | `pg["norm_emit_4d"]` | normalized 4D emittance | m² |
-| `x_bar(pg)` | `pg["x_bar"]` | normalized x coordinate per particle | m^(1/2) |
-| `px_bar(pg)` | `pg["px_bar"]` | normalized px coordinate per particle | m^(1/2) |
-| `y_bar(pg)` | `pg["y_bar"]` | normalized y coordinate per particle | m^(1/2) |
-| `py_bar(pg)` | `pg["py_bar"]` | normalized py coordinate per particle | m^(1/2) |
-| `Jx(pg)` | `pg["Jx"]` | x action per particle | m |
-| `Jy(pg)` | `pg["Jy"]` | y action per particle | m |
+| Function call | Returns | Units |
+|---|---|---|
+| `nalive(pg)` | number of alive particles | — |
+| `ndead(pg)` | number of dead particles | — |
+| `charge(pg)` | total charge | C |
+| `mass(pg)` | particle rest mass | eV |
+| `species_charge(pg)` | elementary charge of species | C |
+| `average_current(pg)` | average current | A |
+| `momentum(pg)` | total momentum per particle | eV/c |
+| `energy(pg)` | total energy per particle | eV |
+| `kinetic_energy(pg)` | kinetic energy per particle | eV |
+| `gamma(pg)` | Lorentz factor per particle | — |
+| `beta(pg)` | `\|v\|/c` per particle | — |
+| `beta_x(pg)` | `vx/c` per particle | — |
+| `beta_y(pg)` | `vy/c` per particle | — |
+| `beta_z(pg)` | `vz/c` per particle | — |
+| `xp(pg)` | `px/pz` per particle | rad |
+| `yp(pg)` | `py/pz` per particle | rad |
+| `r(pg)` | cylindrical radius per particle | m |
+| `theta(pg)` | azimuthal angle per particle | rad |
+| `pr(pg)` | radial momentum per particle | eV/c |
+| `ptheta(pg)` | azimuthal momentum per particle | eV/c |
+| `Lz(pg)` | angular momentum per particle | m·eV/c |
+| `norm_emit_x(pg)` | normalized x emittance | m |
+| `norm_emit_y(pg)` | normalized y emittance | m |
+| `norm_emit_4d(pg)` | normalized 4D emittance | m² |
+| `x_bar(pg)` | normalized x coordinate per particle | m^(1/2) |
+| `px_bar(pg)` | normalized px coordinate per particle | m^(1/2) |
+| `y_bar(pg)` | normalized y coordinate per particle | m^(1/2) |
+| `py_bar(pg)` | normalized py coordinate per particle | m^(1/2) |
+| `Jx(pg)` | x action per particle | m |
+| `Jy(pg)` | y action per particle | m |

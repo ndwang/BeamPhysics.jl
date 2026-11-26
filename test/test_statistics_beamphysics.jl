@@ -10,45 +10,49 @@ import BeamPhysics:
     particle_amplitude, normalized_particle_coordinate,
     delta, ptp
 
-const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
+const _STAT_BEAM = read_particle_group(joinpath(@__DIR__, "initial_particles.h5"))
 
 @testset "Statistics and Beam Physics" begin
 
     @testset "Basic statistics" begin
         @testset "mean" begin
             pg = _STAT_BEAM
-            @test abs(Statistics.mean(pg, "x")) < 1e-4
+            @test abs(Statistics.mean(pg, :x)) < 1e-4
 
             pg1 = single_particle(x=42.0)
-            @test Statistics.mean(pg1, "x") == 42.0
+            @test Statistics.mean(pg1, :x) == 42.0
         end
 
         @testset "std" begin
             pg = _STAT_BEAM
-            @test Statistics.std(pg, "x") > 0
-            @test Statistics.std(pg, "pz") > 0
+            @test Statistics.std(pg, :x) > 0
+            @test Statistics.std(pg, :pz) > 0
 
             pg1 = single_particle(x=1.0)
-            @test Statistics.std(pg1, "x") == 0.0
+            @test Statistics.std(pg1, :x) == 0.0
         end
 
         @testset "minimum / maximum" begin
             pg = _STAT_BEAM
-            @test Base.minimum(pg, "x") == minimum(pg.x)
-            @test Base.maximum(pg, "x") == maximum(pg.x)
-            @test Base.minimum(pg, "x") < Base.maximum(pg, "x")
+            @test Base.minimum(pg, :x) == minimum(pg.x)
+            @test Base.maximum(pg, :x) == maximum(pg.x)
+            @test Base.minimum(pg, :x) < Base.maximum(pg, :x)
         end
 
-        @testset "cov" begin
-            pg = _STAT_BEAM
-            C = StatsBase.cov(pg, "x", "px")
-            @test size(C) == (2, 2)
-            @test C[1, 2] ≈ C[2, 1]
+        @testset "weighted moments with stored and computed columns" begin
+            pg = single_particle(x=1.0, px=1e6, pz=2e6, weight=1.0) +
+                 single_particle(x=5.0, px=3e6, pz=2e6, weight=3.0, status=0)
+            beta = beta_x(pg)
+            expected = 0.75 * (beta[2] - beta[1])
+            @test Statistics.mean(pg, :x) == 4.0
+            @test Statistics.std(pg, p -> p.x) ≈ sqrt(3.0)
+            @test Statistics.cov(pg, :x, beta_x) ≈ expected
+            @test covariance_matrix(pg, :x, beta_x)[1, 2] ≈ expected
         end
 
         @testset "delta" begin
             pg = _STAT_BEAM
-            d = delta(pg, "x")
+            d = delta(pg, :x)
             @test length(d) == length(pg)
             @test abs(_mean(d, weights(pg.weight))) < 1e-12
         end
@@ -57,30 +61,30 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
             @test ptp([1.0, 5.0, 3.0]) == 4.0
 
             pg = _STAT_BEAM
-            @test ptp(pg, "x") ≈ maximum(pg.x) - minimum(pg.x)
+            @test ptp(pg, :x) ≈ maximum(pg.x) - minimum(pg.x)
         end
     end
 
     @testset "Emittance" begin
         @testset "norm_emit_calc single plane" begin
             pg = _STAT_BEAM
-            ex = norm_emit_calc(pg, ["x"])
-            ey = norm_emit_calc(pg, ["y"])
+            ex = norm_emit_calc(pg, (:x,))
+            ey = norm_emit_calc(pg, (:y,))
             @test ex > 0
             @test ey > 0
         end
 
         @testset "norm_emit_calc 4D" begin
             pg = _STAT_BEAM
-            e4 = norm_emit_calc(pg, ["x", "y"])
+            e4 = norm_emit_calc(pg, (:x, :y))
             @test e4 > 0
         end
 
         @testset "convenience wrappers consistency" begin
             pg = _STAT_BEAM
-            @test norm_emit_x(pg) ≈ norm_emit_calc(pg, ["x"])
-            @test norm_emit_y(pg) ≈ norm_emit_calc(pg, ["y"])
-            @test norm_emit_4d(pg) ≈ norm_emit_calc(pg, ["x", "y"])
+            @test norm_emit_x(pg) ≈ norm_emit_calc(pg, (:x,))
+            @test norm_emit_y(pg) ≈ norm_emit_calc(pg, (:y,))
+            @test norm_emit_4d(pg) ≈ norm_emit_calc(pg, (:x, :y))
         end
     end
 
@@ -160,15 +164,15 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
             @test tw.emit  ≈ emit0     rtol=1e-10
         end
 
-        @testset "twiss_dispersion ParticleGroup" begin
+        @testset "Twiss on a ParticleGroup" begin
             pg = _STAT_BEAM
-            tw = twiss_dispersion(pg; plane="x")
+            tw = twiss(pg; plane=:x)
             @test tw.beta > 0
             @test tw.emit > 0
             @test hasproperty(tw, :norm_emit)
             @test tw.norm_emit > 0
 
-            shifted_ref = twiss_dispersion(pg; plane="x", p0c=2 * pg["mean_p"])
+            shifted_ref = twiss(pg; plane=:x, p0c=2 * Statistics.mean(pg, momentum))
             @test shifted_ref.norm_emit ≈ tw.norm_emit
             @test shifted_ref.eta ≈ 2 * tw.eta
             @test shifted_ref.etap ≈ tw.etap
@@ -177,29 +181,14 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
         @testset "twiss lowest-action fraction" begin
             pg = _STAT_BEAM[1:101]
             core = pg[sortperm(Jx(pg))[1:90]]
-            @test twiss(pg; fraction=0.9) == twiss(core)
+            @test all(isapprox.(values(twiss(pg; fraction=0.9)), values(twiss(core)); rtol=1e-12))
         end
 
-        @testset "twiss Dict — single plane" begin
+        @testset "Twiss plane selection" begin
             pg = _STAT_BEAM
-            d = twiss(pg; plane="x")
-            @test haskey(d, "beta_x")
-            @test haskey(d, "alpha_x")
-            @test haskey(d, "gamma_x")
-            @test haskey(d, "emit_x")
-            @test haskey(d, "eta_x")
-            @test haskey(d, "etap_x")
-            @test haskey(d, "norm_emit_x")
-            @test d["beta_x"] > 0
-        end
-
-        @testset "twiss Dict — multi-plane" begin
-            pg = _STAT_BEAM
-            d = twiss(pg; plane="xy")
-            @test haskey(d, "beta_x")
-            @test haskey(d, "beta_y")
-            @test haskey(d, "alpha_x")
-            @test haskey(d, "alpha_y")
+            p0c = Statistics.mean(pg, momentum)
+            sigma_y = covariance_matrix(pg, :y, p -> p.py ./ p0c, p -> momentum(p) ./ p0c)
+            @test twiss(pg; plane=:y).beta ≈ twiss_dispersion(sigma_y).beta
         end
     end
 
@@ -255,7 +244,7 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
 
         @testset "particle_amplitude" begin
             pg = _STAT_BEAM
-            J = particle_amplitude(pg; plane="x")
+            J = particle_amplitude(pg; plane=:x)
             @test length(J) == length(pg)
             @test all(J .>= 0)
         end
@@ -267,8 +256,8 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
                 weights(pg.weight), 1; corrected=false
             )
             tw = twiss_calc(sigma2)
-            J1 = particle_amplitude(pg; plane="x")
-            J2 = particle_amplitude(pg; plane="x", twiss=tw)
+            J1 = particle_amplitude(pg; plane=:x)
+            J2 = particle_amplitude(pg; plane=:x, twiss=tw)
             @test J1 ≈ J2
         end
     end
@@ -276,13 +265,13 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
     @testset "Normalized particle coordinate" begin
         @testset "position" begin
             pg = _STAT_BEAM
-            xn = normalized_particle_coordinate(pg, "x")
+            xn = normalized_particle_coordinate(pg, :x)
             @test length(xn) == length(pg)
         end
 
         @testset "momentum" begin
             pg = _STAT_BEAM
-            pxn = normalized_particle_coordinate(pg, "px")
+            pxn = normalized_particle_coordinate(pg, :px)
             @test length(pxn) == length(pg)
         end
 
@@ -293,12 +282,19 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
         end
     end
 
-    @testset "Slice statistics" begin
-        pg = _STAT_BEAM
-        stats = slice_statistics(pg; keys=["mean_x", "sigma_x"], n_slice=10)
-        @test haskey(stats, "mean_x")
-        @test haskey(stats, "sigma_x")
-        @test length(stats["mean_x"]) == 10
+    @testset "Equal-count slice views" begin
+        n = 10
+        z = collect(Float64, n:-1:1)
+        pg = ParticleGroup(; x=zeros(n), px=zeros(n), y=zeros(n), py=zeros(n),
+                           z, pz=ones(n), t=zeros(n), weight=ones(n),
+                           status=ones(Int, n), species=Species("electron"))
+        groups = slices(pg; n=4)
+        @test map(length, groups) == [3, 2, 2, 3]
+        @test vcat((s.z for s in groups)...) == reverse(z)
+        groups[1].x[1] = 2.0
+        @test pg.x[end] == 2.0
+        @test map(s -> Statistics.mean(s, :t), slices(_STAT_BEAM; n=4)) ==
+              map(s -> Statistics.mean(s, :t), slices(_STAT_BEAM; by=:t, n=4))
     end
 
 end  # Statistics and Beam Physics

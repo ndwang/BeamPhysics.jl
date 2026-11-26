@@ -15,27 +15,27 @@ PMDUnit
 
 ```@docs
 single_particle
-ParticleGroup(h5::HDF5.Group)
-ParticleGroup(file::String)
+read_particle_group(h5::HDF5.Group)
+read_particle_group(file::AbstractString)
 ```
 
 ## Particle Derived Properties
 
-The following functions are available both as standalone calls and via string
-indexing (`pg["key"]`). Most are undocumented one-liners; see source for details.
+Call these functions with a particle group.
 
 **Scalar:** `nalive`, `ndead`, `mass`, `species_charge`, `charge`, `average_current`
 
 **Per-particle arrays:**
 `momentum`, `energy`, `kinetic_energy`, `gamma`, `beta`, `beta_x`, `beta_y`, `beta_z`,
 `xp`, `yp`, `r`, `theta`, `pr`, `ptheta`, `Lz`,
-`x_bar`, `px_bar`, `y_bar`, `py_bar`, `Jx`, `Jy`,
-`norm_emit_x`, `norm_emit_y`, `norm_emit_4d`
+`x_bar`, `px_bar`, `y_bar`, `py_bar`, `Jx`, `Jy`.
+
+**Emittances:** `norm_emit_x`, `norm_emit_y`, `norm_emit_4d`.
 
 ## Particle Operations
 
 `drift!(pg, dt)`, `drift_to_z!(pg[, z])`, `drift_to_t!(pg[, t])`,
-`set_charge!(pg, val)`, `split_particles(pg; n_chunks, key)`,
+`set_charge!(pg, val)`,
 `in_z_coordinates(pg)`, `in_t_coordinates(pg)`
 
 ## Statistics
@@ -50,7 +50,8 @@ A_inverse_mat_calc
 amplitude_calc
 particle_amplitude
 normalized_particle_coordinate
-slice_statistics
+covariance_matrix
+slices
 ```
 
 ## FieldMesh Accessors

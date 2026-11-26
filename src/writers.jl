@@ -72,7 +72,7 @@ Write particle bunch data in openPMD format.
 - Float key: `"charge"`
 - Optional array key: `"id"`
 
-See inverse routine: `ParticleGroup(h5::HDF5.Group)`
+See inverse routine: `read_particle_group(h5::HDF5.Group)`
 """
 function write_pmd_bunch(h5, data::Dict; name=nothing)
     g = isnothing(name) ? h5 : create_group(h5, name)
@@ -160,7 +160,7 @@ end
     write_particle_group(filename::String, pg::AbstractParticleGroup)
 
 Write a ParticleGroup or ParticleGroupView to an HDF5 file in openPMD format.
-This is the inverse of `ParticleGroup(filename::String)`.
+This is the inverse of `read_particle_group(filename::AbstractString)`.
 """
 function write_particle_group(filename::String, pg::AbstractParticleGroup)
     h5open(filename, "w") do h5

@@ -3,7 +3,7 @@ using AtomicAndPhysicalConstants: Species, massof
 @testset "ParticleGroup Construction" begin
 
     @testset "Constructors" begin
-        @testset "full constructor (11 args)" begin
+        @testset "named columns with explicit IDs" begin
             n = 5
             x  = randn(n)
             px = randn(n) .* 1e6
@@ -17,7 +17,7 @@ using AtomicAndPhysicalConstants: Species, massof
             sp = Species("electron")
             id = collect(1:n)
 
-            pg = ParticleGroup(x, px, y, py, z, pz, t, status, weight, sp, id)
+            pg = ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species=sp, id)
 
             @test length(pg) == n
             @test pg.x === x
@@ -33,7 +33,7 @@ using AtomicAndPhysicalConstants: Species, massof
             @test pg.id === id
         end
 
-        @testset "constructor without id (10 args)" begin
+        @testset "named columns with generated IDs" begin
             n = 3
             x  = [0.0, 1.0, 2.0]
             px = [1e6, 2e6, 3e6]
@@ -46,7 +46,7 @@ using AtomicAndPhysicalConstants: Species, massof
             weight = fill(1e-15, n)
             sp = Species("electron")
 
-            pg = ParticleGroup(x, px, y, py, z, pz, t, status, weight, sp)
+            pg = ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species=sp)
 
             @test length(pg) == n
             @test pg.x == x
@@ -93,12 +93,10 @@ using AtomicAndPhysicalConstants: Species, massof
             pg64 = single_particle(x=1.0, pz=1e9)
             @test pg64 isa ParticleGroup{Float64,Int64}
 
-            pg32 = ParticleGroup(
-                Float32[0, 1], Float32[1e6, 2e6],
-                Float32[0, 0], Float32[0, 0],
-                Float32[0, 0], Float32[1e9, 1e9],
-                Float32[0, 0], Int32[1, 1],
-                Float32[1e-15, 1e-15], Species("electron")
+            pg32 = ParticleGroup(;
+                x=Float32[0, 1], px=Float32[1e6, 2e6], y=zeros(Float32, 2), py=zeros(Float32, 2),
+                z=zeros(Float32, 2), pz=fill(1f9, 2), t=zeros(Float32, 2), status=Int32[1, 1],
+                weight=fill(1f-15, 2), species=Species("electron")
             )
             @test pg32 isa ParticleGroup{Float32,Int32}
             @test length(pg32) == 2

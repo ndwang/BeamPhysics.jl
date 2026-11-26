@@ -14,19 +14,19 @@ using Plots
 
 ```julia
 # 1D density histogram of a particle property
-density_plot(pg, "x")
-density_plot(pg, "z"; bins=100)
+density_plot(pg, :x)
+density_plot(pg, :z; bins=100)
 
 # Marginal plot: 2D density with 1D projections on margins
-marginal_plot(pg, "x", "y")
-marginal_plot(pg, "z", "energy")
+marginal_plot(pg, :x, :y)
+marginal_plot(pg, :z, energy)
 
 # Slice plot: statistics along slices
-slice_plot(pg, "sigma_x")                     # slice key auto-detected
-slice_plot(pg, "sigma_x"; slice_key="z")      # explicit slice key
+slice_plot(pg, norm_emit_x, norm_emit_y)
+slice_plot(pg, norm_emit_x; slice_key=:z)
 
 # Combined density + slice
-density_and_slice_plot(pg, "z", "x")
+density_and_slice_plot(pg, :z, :x)
 ```
 
 See [`density_plot`](@ref), [`marginal_plot`](@ref), [`slice_plot`](@ref),

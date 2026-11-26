@@ -21,15 +21,15 @@ Pkg.add("BeamPhysics")
 ## Quick Start
 
 ```julia
-using BeamPhysics
+using BeamPhysics, Statistics
 
 # Load particles from an openPMD HDF5 file
-pg = ParticleGroup("particles.h5")
+pg = read_particle_group("particles.h5")
 
 # Access particle properties
-pg["x"]           # x positions [m]
-pg["sigma_x"]     # std of x [m]
-pg["norm_emit_x"] # normalized emittance [m]
+pg.x           # x positions [m]
+std(pg, :x)     # std of x [m]
+norm_emit_x(pg) # normalized emittance [m]
 
 # Load a field mesh
 fm = FieldMesh("solenoid.h5")

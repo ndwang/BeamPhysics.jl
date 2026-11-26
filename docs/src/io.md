@@ -11,7 +11,7 @@ This package reads and writes files in the
 using BeamPhysics
 
 # Load particles (file must contain exactly one particle path)
-pg = ParticleGroup("particles.h5")
+pg = read_particle_group("particles.h5")
 
 # Inspect available paths in a file
 using HDF5
@@ -20,7 +20,7 @@ h5open("particles.h5", "r") do h5
 end
 ```
 
-See [`ParticleGroup`](@ref), [`particle_paths`](@ref).
+See [`read_particle_group`](@ref), [`particle_paths`](@ref).
 
 ## Writing Particles
 

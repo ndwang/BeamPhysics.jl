@@ -1,7 +1,9 @@
+abstract type AbstractParticleGroup{T<:Real, I<:Integer} end
+
 """
     ParticleGroup{T, I, AT, AI, AId}
 
-Represents a collection of particles with their properties and methods for analysis.
+Stores the particle columns of a single-species beam.
 Array fields are parameterized so they can be `Vector`, `CuArray`, or any `AbstractVector`.
 
 # Fields
@@ -13,8 +15,6 @@ Array fields are parameterized so they can be `Vector`, `CuArray`, or any `Abstr
 - `species::Species`: particle species
 - `id::AId`: optional particle IDs
 """
-
-abstract type AbstractParticleGroup{T<:Real, I<:Integer} end
 
 struct ParticleGroup{T<:Real, I<:Integer,
                      AT<:AbstractVector{T},
@@ -33,17 +33,15 @@ struct ParticleGroup{T<:Real, I<:Integer,
     id::AId
 end
 
-# Constructor with auto-generated ids
-function ParticleGroup(
-    x::AT, px::AT, y::AT, py::AT,
-    z::AT, pz::AT, t::AT, status::AI,
-    weight::AT, species::Species
-) where {T<:Real, I<:Integer, AT<:AbstractVector{T}, AI<:AbstractVector{I}}
-    n = length(x)
-    id = collect(Int, 1:n)
+"""
+    ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species, id=collect(1:length(x)))
+
+Construct a particle group from named columns. Arrays are stored without copying.
+"""
+function ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species,
+                       id=collect(1:length(x)))
     return ParticleGroup(x, px, y, py, z, pz, t, status, weight, species, id)
 end
-
 """
     ParticleGroupView
 
@@ -80,6 +78,7 @@ function ParticleGroupView(pg::AbstractParticleGroup{T,I}, Iinds) where {T<:Real
 end
 
 Base.view(pg::AbstractParticleGroup, Iinds) = ParticleGroupView(pg, Iinds)
+Base.view(pg::AbstractParticleGroup, i::Integer) = view(pg, i:i)
 
 """
     single_particle(; x=0, px=0, y=0, py=0, z=0, pz=0, t=0, weight=1, status=1, species=Species("electron"))
@@ -143,13 +142,13 @@ beta_y(pg::AbstractParticleGroup) = pg.py ./ energy(pg)
 beta_z(pg::AbstractParticleGroup) = pg.pz ./ energy(pg)
 
 # These call normalized_particle_coordinate (defined in statistics.jl, resolved at call time)
-x_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, "x")
-px_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, "px")
-y_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, "y")
-py_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, "py")
+x_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, :x)
+px_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, :px)
+y_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, :y)
+py_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, :py)
 
-Jx(pg::AbstractParticleGroup) = particle_amplitude(pg; plane="x")
-Jy(pg::AbstractParticleGroup) = particle_amplitude(pg; plane="y")
+Jx(pg::AbstractParticleGroup) = particle_amplitude(pg; plane=:x)
+Jy(pg::AbstractParticleGroup) = particle_amplitude(pg; plane=:y)
 
 # ---- set_charge! ----
 
@@ -192,62 +191,14 @@ function Base.copy(pg::AbstractParticleGroup)
     )
 end
 
-# ---- Statistics: proper Base/Statistics extensions ----
+# Resolve a stored column or evaluate a user-supplied column function.
+_particle_values(pg, column::Symbol) = getproperty(pg, column)::AbstractVector
 
-function Base.minimum(pg::AbstractParticleGroup, key::AbstractString)
-    return minimum(_resolve_key(pg, key))
+function _particle_values(pg, f)
+    values = f(pg)::AbstractVector
+    length(values) == length(pg) || throw(DimensionMismatch("Expected one value per particle"))
+    return values
 end
-
-function Base.maximum(pg::AbstractParticleGroup, key::AbstractString)
-    return maximum(_resolve_key(pg, key))
-end
-
-function Statistics.mean(pg::AbstractParticleGroup, key::AbstractString)
-    dat = _resolve_key(pg, key)
-    if length(dat) == 1
-        return dat[1]
-    end
-    return mean(dat, weights(pg.weight))
-end
-
-function Statistics.std(pg::AbstractParticleGroup, key::AbstractString)
-    dat = _resolve_key(pg, key)
-    if length(dat) == 1
-        return zero(eltype(dat))
-    end
-    avg_dat = Statistics.mean(pg, key)
-    return sqrt(mean((dat .- avg_dat).^2, weights(pg.weight)))
-end
-
-function StatsBase.cov(pg::AbstractParticleGroup, keys::AbstractString...)
-    dats = hcat([_resolve_key(pg, key) for key in keys]...)
-    return StatsBase.cov(dats, weights(pg.weight), 1; corrected=false)
-end
-
-function delta(pg::AbstractParticleGroup, key::AbstractString)
-    return _resolve_key(pg, key) .- Statistics.mean(pg, key)
-end
-
-ptp(x::AbstractArray) = maximum(x) - minimum(x)
-
-function ptp(pg::AbstractParticleGroup, key::AbstractString)
-    return ptp(_resolve_key(pg, key))
-end
-
-# Internal helper to resolve a key string to data array (for stat methods)
-function _resolve_key(pg::AbstractParticleGroup, key::AbstractString)
-    # Check struct fields first
-    s = Symbol(key)
-    if s in fieldnames(ParticleGroup)
-        return getfield(pg, s)
-    end
-    # Check derived properties
-    if haskey(DERIVED_PROPERTIES, key)
-        return DERIVED_PROPERTIES[key](pg)
-    end
-    error("Unknown key: $key")
-end
-
 # ---- Coordinate checks ----
 
 function in_z_coordinates(pg::AbstractParticleGroup)
@@ -261,41 +212,12 @@ end
 # ---- average_current ----
 
 function average_current(pg::AbstractParticleGroup)
-    dt = ptp(pg, "t")
+    dt = ptp(pg.t)
     if dt == 0
-        dt = ptp(pg, "z") / (Statistics.mean(pg, "beta_z") * C_LIGHT)
+        dt = ptp(pg.z) / (mean(pg, beta_z) * C_LIGHT)
     end
     return charge(pg) / dt
 end
-
-# ---- DERIVED_PROPERTIES dict for getindex resolution ----
-
-# Functions from statistics.jl (norm_emit_*, x_bar, etc.) are registered
-# at the bottom of statistics.jl after they are defined.
-const DERIVED_PROPERTIES = Dict{String, Function}(
-    "n_particle"     => length,
-    "n_alive"        => nalive,
-    "n_dead"         => ndead,
-    "mass"           => mass,
-    "species_charge" => species_charge,
-    "charge"         => charge,
-    "p"              => momentum,
-    "energy"         => energy,
-    "kinetic_energy" => kinetic_energy,
-    "xp"             => xp,
-    "yp"             => yp,
-    "r"              => r,
-    "theta"          => theta,
-    "pr"             => pr,
-    "ptheta"         => ptheta,
-    "Lz"             => Lz,
-    "gamma"          => gamma,
-    "beta"           => beta,
-    "beta_x"         => beta_x,
-    "beta_y"         => beta_y,
-    "beta_z"         => beta_z,
-    "average_current"=> average_current,
-)
 
 # ---- Drift methods ----
 
@@ -324,7 +246,7 @@ function drift_to_z!(pg::AbstractParticleGroup, z::Real)
 end
 
 function drift_to_z!(pg::AbstractParticleGroup)
-    z = Statistics.mean(pg, "z")
+    z = mean(pg, :z)
     drift_to_z!(pg, z)
 end
 
@@ -335,72 +257,16 @@ function drift_to_t!(pg::AbstractParticleGroup, t::Real)
 end
 
 function drift_to_t!(pg::AbstractParticleGroup)
-    t = Statistics.mean(pg, "t")
+    t = mean(pg, :t)
     drift_to_t!(pg, t)
 end
 
-# ---- getindex ----
-
-"""
-    Base.getindex(pg::AbstractParticleGroup, x)
-
-Returns a property or statistical quantity that can be computed:
-
-- `P["x"]` returns the x array
-- `P["sigma_x"]` returns the std(x) scalar
-- `P["norm_emit_x"]` returns the norm_emit_x scalar
-- `P["cov_x_px"]` returns the covariance of x and px
-
-Parts can also be given. Example: `P[1:10]` returns a new ParticleGroup with the first 10 elements.
-For a ParticleGroup, integer/range indexing returns a new ParticleGroup (copy).
-For a ParticleGroupView, integer/range indexing returns a new ParticleGroupView.
-"""
-function Base.getindex(pg::AbstractParticleGroup, x)
-    if !isa(x, AbstractString)
-        return _index_particles(pg, x)
-    end
-
-    # Special case for z/c
-    if x == "z/c"
-        return pg.z ./ C_LIGHT
-    end
-
-    if startswith(x, "cov_")
-        subkeys = split(x[5:end], "_")
-        @assert length(subkeys) == 2 "Need 2 properties in covariance request: $x"
-        return StatsBase.cov(pg, subkeys...)[1, 2]
-    elseif startswith(x, "delta_")
-        return delta(pg, x[7:end])
-    elseif startswith(x, "sigma_")
-        return Statistics.std(pg, x[7:end])
-    elseif startswith(x, "mean_")
-        return Statistics.mean(pg, x[6:end])
-    elseif startswith(x, "min_")
-        return Base.minimum(pg, x[5:end])
-    elseif startswith(x, "max_")
-        return Base.maximum(pg, x[5:end])
-    elseif startswith(x, "ptp_")
-        return ptp(pg, x[5:end])
-    end
-
-    # Check struct fields
-    s = Symbol(x)
-    if s in fieldnames(ParticleGroup)
-        return getfield(pg, s)
-    end
-
-    # Check derived properties
-    if haskey(DERIVED_PROPERTIES, x)
-        return DERIVED_PROPERTIES[x](pg)
-    end
-
-    error("Unknown key: $x")
-end
-
-# Integer/range indexing: ParticleGroup returns a copy, ParticleGroupView returns a view
+# Indexing an owning group copies rows; indexing a view preserves the view.
 Base.getindex(pg::AbstractParticleGroup, i::Integer) = pg[i:i]
-_index_particles(pg::ParticleGroup, x) = particle_parts(pg, x)
-_index_particles(pg::ParticleGroupView, x) = ParticleGroupView(pg, x)
+Base.getindex(pg::ParticleGroup, rows::Union{Colon,AbstractVector{<:Integer}}) =
+    particle_parts(pg, rows)
+Base.getindex(pg::ParticleGroupView, rows::Union{Colon,AbstractVector{<:Integer}}) =
+    view(pg, rows)
 
 # ---- Arithmetic and comparison ----
 
@@ -439,22 +305,19 @@ end
 
 # ---- Helper functions ----
 
-function split_particles(pg::AbstractParticleGroup; n_chunks=100, key="z")
-    zlist = _resolve_key(pg, key)
-    iz = sortperm(zlist)
-    n = length(iz)
-    n < n_chunks && throw(ArgumentError("Cannot split $n particles into $n_chunks chunks"))
+"""
+    slices(pg; by=nothing, n=40)
 
-    edges = round.(Int, range(1, n + 1, length=n_chunks + 1))
-    plist = map(1:n_chunks) do i
-        chunk = iz[edges[i]:edges[i+1]-1]
-        ParticleGroup(
-            pg.x[chunk], pg.px[chunk], pg.y[chunk], pg.py[chunk],
-            pg.z[chunk], pg.pz[chunk], pg.t[chunk], pg.status[chunk],
-            pg.weight[chunk], pg.species, pg.id[chunk]
-        )
-    end
-    return plist
+Sort the group by the selected column and return n roughly equal-count views.
+When by is omitted, use z for a common-time group and t otherwise.
+"""
+function slices(pg::AbstractParticleGroup; by=nothing, n=40)
+    column = isnothing(by) ? (in_t_coordinates(pg) ? :z : :t) : by
+    order = sortperm(_particle_values(pg, column))
+    count = length(order)
+    1 <= n <= count || throw(ArgumentError("Cannot split $count particles into $n slices"))
+    edges = round.(Int, range(1, count + 1, length=n + 1))
+    return [view(pg, @view(order[edges[i]:edges[i+1]-1])) for i in 1:n]
 end
 
 function particle_parts(pg::ParticleGroup, idx)
@@ -486,19 +349,16 @@ function join_particle_groups(pgs::AbstractParticleGroup...)
     )
 end
 
-# ---- HDF5 constructors ----
+# ---- Particle file I/O ----
 
 """
-    ParticleGroup(h5::HDF5.Group)
+    read_particle_group(h5::HDF5.Group)
 
 Load a `ParticleGroup` from an open HDF5 group in openPMD-beamphysics format.
 The group may point directly to a species subgroup or to a path containing
-exactly one species. Particle coordinates are converted to SI units (positions
-in m, momenta in eV/c, time in s).
-
-See also [`ParticleGroup(file::String)`](@ref).
+exactly one species. Particle coordinates are returned in m, momenta in eV/c, and time in s.
 """
-function ParticleGroup(h5::HDF5.Group)
+function read_particle_group(h5::HDF5.Group)
 
     if !haskey(h5, "position")
         species = keys(h5)
@@ -533,18 +393,18 @@ function ParticleGroup(h5::HDF5.Group)
         weight = fill(total_charge / n_particle, n_particle)
     end
 
-    return ParticleGroup(x, px, y, py, z, pz, t, status, weight, species)
+    return ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species)
 end
 
 """
-    ParticleGroup(file::String)
+    read_particle_group(file::AbstractString)
 
 Load particles into a ParticleGroup from an HDF5 file in openPMD format.
 """
-function ParticleGroup(file::String)
+function read_particle_group(file::AbstractString)
     h5open(file, "r") do h5
         pp = particle_paths(h5)
         @assert length(pp) == 1 "Number of particle paths in $file is $(length(pp))."
-        return ParticleGroup(h5[pp[1]])
+        return read_particle_group(h5[pp[1]])
     end
 end

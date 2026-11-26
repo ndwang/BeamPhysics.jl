@@ -2,13 +2,10 @@ module BeamPhysics
 
 # External dependencies
 using HDF5
-using StatsBase: weights, fit, Histogram
+using StatsBase: weights
 using LinearAlgebra: det
 using AtomicAndPhysicalConstants: Species, massof, chargeof, C_LIGHT, EV_PER_J, J_PER_EV
-import Statistics
-import Statistics: mean, std
-import StatsBase
-import StatsBase: cov
+import Statistics: mean, std, cov
 
 # Include all source files in dependency order
 include("units.jl")
@@ -43,18 +40,18 @@ export set_charge!, average_current
 export norm_emit_calc, twiss_calc, twiss_dispersion, twiss
 export A_mat_calc, A_inverse_mat_calc, amplitude_calc
 export particle_amplitude, normalized_particle_coordinate
-export slice_statistics, delta, ptp
+export covariance_matrix, delta, ptp
 
 # Coordinates & operations
 export in_z_coordinates, in_t_coordinates
-export drift!, drift_to_t!, drift_to_z!, split_particles
+export drift!, drift_to_t!, drift_to_z!, slices
 
 # I/O
 export particle_paths, field_paths, load_field_attrs
 export is_constant_component, constant_component_value
 export component_data, offset_component_name, particle_array, all_components, component_str
 export pmd_init, pmd_field_init, write_component_data, write_pmd_bunch, write_pmd_field
-export particle_data_dict, write_particle_group
+export particle_data_dict, read_particle_group, write_particle_group
 
 # Units & display
 export PMDUnit, nice_scale_prefix, nice_array, pg_units, limits, plottable_array

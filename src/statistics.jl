@@ -1,34 +1,81 @@
 """
-    norm_emit_calc(particle_group, planes=["x"])
+    mean(pg, column)
+    std(pg, column)
 
-Calculate 2d, 4d, or 6d normalized emittance.
-
-- `planes = ['x', 'y']` gives the 4d emittance
-- `planes = ['x', 'y', 'z']` gives the 6d emittance
-
-Momenta for each plane are taken as p+plane, e.g. 'px' for plane='x'
-
-The normalization factor is (1/mc)^n_planes, so that the units are meters^n_planes
+Weighted mean and population standard deviation. Pass a symbol naming a stored
+column or a function returning one value per particle. All rows are included.
 """
-function norm_emit_calc(particle_group, planes=["x"])
-    dim = length(planes)
-    vars = String[]
-    for k in planes
-        push!(vars, k)
-        push!(vars, "p" * k)
-    end
-
-    S = StatsBase.cov(particle_group, vars...)
-    mc2 = mass(particle_group)
-    norm_emit = sqrt(det(S)) / mc2^dim
-
-    return norm_emit
+function mean(pg::AbstractParticleGroup, column)
+    values = _particle_values(pg, column)
+    length(values) == 1 && return only(values)
+    return mean(values, weights(pg.weight))
 end
 
-# Convenience wrappers (moved from particles.jl)
-norm_emit_x(pg::AbstractParticleGroup) = norm_emit_calc(pg, ["x"])
-norm_emit_y(pg::AbstractParticleGroup) = norm_emit_calc(pg, ["y"])
-norm_emit_4d(pg::AbstractParticleGroup) = norm_emit_calc(pg, ["x", "y"])
+function std(pg::AbstractParticleGroup, column)
+    values = _particle_values(pg, column)
+    length(values) == 1 && return zero(eltype(values))
+    w = weights(pg.weight)
+    center = mean(values, w)
+    return sqrt(mean((values .- center).^2, w))
+end
+
+Base.minimum(pg::AbstractParticleGroup, column) = minimum(_particle_values(pg, column))
+Base.maximum(pg::AbstractParticleGroup, column) = maximum(_particle_values(pg, column))
+
+"""
+    cov(pg, first, second)
+
+Weighted population covariance between two particle columns. Each selector is a
+stored column symbol or a function returning one value per particle.
+"""
+function cov(pg::AbstractParticleGroup, first, second)
+    x = _particle_values(pg, first)
+    y = _particle_values(pg, second)
+    w = weights(pg.weight)
+    x0, y0 = mean(x, w), mean(y, w)
+    return mean((x .- x0) .* (y .- y0), w)
+end
+
+"""
+    covariance_matrix(pg, columns...)
+
+Weighted population covariance matrix, with rows and columns in selector order.
+Selectors are the same as for cov.
+"""
+function covariance_matrix(pg::AbstractParticleGroup, columns...)
+    data = hcat(map(column -> _particle_values(pg, column), columns)...)
+    return cov(data, weights(pg.weight), 1; corrected=false)
+end
+
+function delta(pg::AbstractParticleGroup, column)
+    values = _particle_values(pg, column)
+    center = length(values) == 1 ? only(values) : mean(values, weights(pg.weight))
+    return values .- center
+end
+
+ptp(x::AbstractArray) = maximum(x) - minimum(x)
+ptp(pg::AbstractParticleGroup, column) = ptp(_particle_values(pg, column))
+
+function _momentum_column(plane::Symbol)
+    plane in (:x, :y, :z) || throw(ArgumentError("Unknown plane: $plane"))
+    return Symbol(:p, plane)
+end
+
+"""
+    norm_emit_calc(pg, planes=(:x,))
+
+Compute normalized emittance in the selected planes using mechanical momenta.
+For N planes, the units are m^N.
+"""
+function norm_emit_calc(pg::AbstractParticleGroup, planes=(:x,))
+    columns = map(plane -> (plane, _momentum_column(plane)), planes)
+    S = covariance_matrix(pg, Iterators.flatten(columns)...)
+    return sqrt(det(S)) / mass(pg)^length(planes)
+end
+
+norm_emit_x(pg::AbstractParticleGroup) = norm_emit_calc(pg, (:x,))
+norm_emit_y(pg::AbstractParticleGroup) = norm_emit_calc(pg, (:y,))
+norm_emit_4d(pg::AbstractParticleGroup) = norm_emit_calc(pg, (:x, :y))
 
 """
     twiss_calc(sigma_mat2)
@@ -85,63 +132,33 @@ function twiss_dispersion(sigma3::Matrix)
 end
 
 """
-    twiss_dispersion(particle_group; plane="x", fraction=1, p0c=nothing)
+    twiss(pg; plane=:x, fraction=1, p0c=nothing)
 
-Twiss and Dispersion calc for a ParticleGroup.
+Calculate dispersion-corrected Twiss parameters in plane :x or :y. Return a
+named tuple with alpha, beta, gamma, emit, eta, etap, and norm_emit.
 
-Plane must be 'x' or 'y'.
-
-p0c is the reference momentum. If not given, the mean p will be used.
-
-For `fraction < 1`, select the lowest-action particles by count, not by charge.
-The selected particles still contribute with their weights when computing Twiss.
-
-Returns a NamedTuple with fields suffixed by plane:
-    alpha, beta, gamma, emit, eta, etap, norm_emit
+If p0c is omitted, use the weighted mean momentum of the selected particles.
+For fraction < 1, select the lowest-action particles by count, not by charge;
+the selected particles still contribute with their weights.
 """
-function twiss_dispersion(particle_group; plane="x", fraction=1, p0c=nothing)
-    @assert plane in ["x", "y"]
-
-    P = particle_group
-
+function twiss(pg::AbstractParticleGroup; plane=:x, fraction=1, p0c=nothing)
+    plane in (:x, :y) || throw(ArgumentError("Twiss plane must be :x or :y"))
     if fraction < 1
-        P = P[sortperm(P["J" * plane])][1:trunc(Int, fraction * length(P))]
+        action = particle_amplitude(pg; plane)
+        order = sortperm(action)
+        pg = view(pg, @view(order[1:trunc(Int, fraction * length(pg))]))
     end
 
+    p = momentum(pg)
     if isnothing(p0c)
-        p0c = P["mean_p"]
+        p0c = length(p) == 1 ? only(p) : mean(p, weights(pg.weight))
     end
 
-    x = P[plane]
-    xp = P["p" * plane] ./ p0c
-    d = P["p"] ./ p0c
-
-    sigma3 = StatsBase.cov([x xp d], weights(P.weight); corrected=false)
-
+    x = getproperty(pg, plane)
+    p_transverse = getproperty(pg, _momentum_column(plane)) ./ p0c
+    sigma3 = cov(hcat(x, p_transverse, p ./ p0c), weights(pg.weight); corrected=false)
     tw = twiss_dispersion(sigma3)
-
-    # Add norm_emit (no plane suffix yet)
-    norm_emit = tw.emit * p0c / mass(P)
-
-    return (; tw..., norm_emit = norm_emit)
-end
-
-"""
-    twiss(pg::AbstractParticleGroup; plane="x", fraction=1, p0c=nothing)
-
-Compute Twiss parameters for one or more planes.
-
-Returns a Dict with keys suffixed by plane, e.g. "alpha_x", "beta_x", etc.
-"""
-function twiss(pg::AbstractParticleGroup; plane="x", fraction=1, p0c=nothing)
-    d = Dict{String,Float64}()
-    for p in plane
-        result = twiss_dispersion(pg, plane=string(p), fraction=fraction, p0c=p0c)
-        for (k, v) in pairs(result)
-            d[string(k) * "_" * string(p)] = v
-        end
-    end
-    return d
+    return (; tw..., norm_emit = tw.emit * p0c / mass(pg))
 end
 
 """
@@ -187,22 +204,18 @@ function amplitude_calc(x, p; beta=1, alpha=0)
 end
 
 """
-    particle_amplitude(particle_group; plane="x", twiss=nothing, mass_normalize=true)
+    particle_amplitude(particle_group; plane=:x, twiss=nothing, mass_normalize=true)
 
 Returns the action J = (x_bar^2 + p_bar^2)/2 for each particle in the given plane.
 """
-function particle_amplitude(particle_group; plane="x", twiss=nothing, mass_normalize=true)
-    x = particle_group[plane]
-    key2 = "p" * plane
-
+function particle_amplitude(particle_group::AbstractParticleGroup; plane=:x, twiss=nothing, mass_normalize=true)
+    x = getproperty(particle_group, plane)
+    p = getproperty(particle_group, _momentum_column(plane))
     if mass_normalize
-        p = particle_group[key2] ./ mass(particle_group)
-    else
-        p = particle_group[key2]
+        p = p ./ mass(particle_group)
     end
-
     if isnothing(twiss)
-        sigma_mat2 = StatsBase.cov(hcat(x, p), weights(particle_group.weight), 1; corrected=false)
+        sigma_mat2 = cov(hcat(x, p), weights(particle_group.weight), 1; corrected=false)
         twiss = twiss_calc(sigma_mat2)
     end
 
@@ -212,105 +225,27 @@ function particle_amplitude(particle_group; plane="x", twiss=nothing, mass_norma
 end
 
 """
-    normalized_particle_coordinate(particle_group, key; twiss=nothing, mass_normalize=true)
+    normalized_particle_coordinate(particle_group, key::Symbol; twiss=nothing, mass_normalize=true)
 
 Returns a single normalized coordinate array from a ParticleGroup.
 """
-function normalized_particle_coordinate(particle_group, key; twiss=nothing, mass_normalize=true)
-    if startswith(key, "p")
-        is_momentum = true
-        key1 = key[2:end]
-        key2 = key
-    else
-        is_momentum = false
-        key1 = key
-        key2 = "p" * key
-    end
-
-    x = particle_group[key1]
-
+function normalized_particle_coordinate(particle_group::AbstractParticleGroup, key::Symbol; twiss=nothing, mass_normalize=true)
+    plane = get((px=:x, py=:y, pz=:z), key, key)
+    x = getproperty(particle_group, plane)
+    p = getproperty(particle_group, _momentum_column(plane))
     if mass_normalize
-        p = particle_group[key2] ./ mass(particle_group)
-    else
-        p = particle_group[key2]
+        p = p ./ mass(particle_group)
     end
-
     if isnothing(twiss)
-        sigma_mat2 = StatsBase.cov(hcat(x, p), weights(particle_group.weight), 1; corrected=false)
+        sigma_mat2 = cov(hcat(x, p), weights(particle_group.weight), 1; corrected=false)
         twiss = twiss_calc(sigma_mat2)
     end
 
     A_inv = A_inverse_mat_calc(twiss.beta, twiss.alpha)
 
-    if is_momentum
+    if key != plane
         return A_inv[2, 1] .* x .+ A_inv[2, 2] .* p
     else
         return A_inv[1, 1] .* x
     end
 end
-
-"""
-    slice_statistics(particle_group; keys=["mean_z"], n_slice=40, slice_key=nothing)
-
-Slices a particle group into n slices and returns statistics from each slice.
-"""
-function slice_statistics(particle_group; keys=["mean_z"], n_slice=40, slice_key=nothing)
-    if isnothing(slice_key)
-        if in_t_coordinates(particle_group)
-            slice_key = "z"
-        else
-            slice_key = "t"
-        end
-    end
-    slices = split_particles(particle_group; n_chunks=n_slice, key=slice_key)
-
-    statistics = Dict{String,Vector{Float64}}()
-
-    regular_keys = filter(k -> !startswith(k, "twiss"), keys)
-    for key in regular_keys
-        statistics[key] = zeros(n_slice)
-        for (i, slice) in enumerate(slices)
-            statistics[key][i] = slice[key]
-        end
-    end
-
-    twiss_keys = filter(k -> startswith(k, "twiss"), keys)
-    if !isempty(twiss_keys)
-        planes = Set{String}()
-        for key in twiss_keys
-            if key == "twiss" || key == "twiss_xy"
-                push!(planes, "x", "y")
-            else
-                p = string(key[end])
-                @assert p in ("x", "y") "Invalid Twiss plane: $p"
-                push!(planes, p)
-            end
-        end
-
-        for pl in planes
-            for (i, slice) in enumerate(slices)
-                result = twiss_dispersion(slice; plane=pl)
-                for (k, v) in pairs(result)
-                    skey = "twiss_$(k)_$(pl)"
-                    if !haskey(statistics, skey)
-                        statistics[skey] = zeros(n_slice)
-                    end
-                    statistics[skey][i] = v
-                end
-            end
-        end
-    end
-
-    return statistics
-end
-
-# Register statistics-dependent functions in DERIVED_PROPERTIES (defined in particles.jl)
-DERIVED_PROPERTIES["norm_emit_x"]  = norm_emit_x
-DERIVED_PROPERTIES["norm_emit_y"]  = norm_emit_y
-DERIVED_PROPERTIES["norm_emit_4d"] = norm_emit_4d
-DERIVED_PROPERTIES["x_bar"]       = x_bar
-DERIVED_PROPERTIES["px_bar"]      = px_bar
-DERIVED_PROPERTIES["y_bar"]       = y_bar
-DERIVED_PROPERTIES["py_bar"]      = py_bar
-DERIVED_PROPERTIES["Jx"]          = Jx
-DERIVED_PROPERTIES["Jy"]          = Jy

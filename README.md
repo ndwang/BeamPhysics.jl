@@ -14,12 +14,12 @@ Pkg.add("BeamPhysics")
 ## Quick Start
 
 ```julia
-using BeamPhysics
+using BeamPhysics, Statistics
 
-pg = ParticleGroup("particles.h5")
-pg["sigma_x"]       # weighted std of x [m]
-pg["norm_emit_x"]   # normalized x emittance [m]
-twiss(pg; plane="x")
+pg = read_particle_group("particles.h5")
+std(pg, :x)       # weighted std of x [m]
+norm_emit_x(pg)   # normalized x emittance [m]
+twiss(pg; plane=:x)
 
 fm = FieldMesh("solenoid.h5")
 fm["Bz"]            # scaled Bz component

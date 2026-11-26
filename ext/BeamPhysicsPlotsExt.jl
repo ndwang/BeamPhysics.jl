@@ -3,14 +3,13 @@ module BeamPhysicsPlotsExt
 using Plots
 using BeamPhysics
 using BeamPhysics: pg_units, plottable_array, nice_array, nice_scale_prefix,
-    mathlabel, ptp, limits, in_t_coordinates, slice_statistics
+    mathlabel, ptp, limits, in_t_coordinates, slices, covariance_matrix, momentum, _particle_values
 
 import BeamPhysics: slice_plot, density_plot, marginal_plot, density_and_slice_plot
 import BeamPhysics: fieldmesh_plot, fieldmesh_plot_onaxis
 import BeamPhysics: FieldMesh, coord_vec, mins, maxs, is_pure_magnetic, is_static, pg_units, nice_array
 
 using StatsBase: weights, fit, Histogram
-import StatsBase
 import Statistics
 
 # Default colormaps
@@ -33,14 +32,29 @@ function _sigma_ellipse(sigma_mat2; n=100)
     return x, y
 end
 
+_plot_key(column::Symbol) = string(column)
+_plot_key(f::Function) = string(nameof(f))
+_plot_key(::typeof(momentum)) = "p"
+_plot_key(diagnostic::Pair) = string(first(diagnostic))
+_plot_function(f) = f
+_plot_function(diagnostic::Pair) = last(diagnostic)
+
+function _slice_plot_data(pg, by, n, diagnostics)
+    groups = slices(pg; by, n)
+    center = [Statistics.mean(s, by) for s in groups]
+    density = [charge(s) / ptp(s, by) for s in groups]
+    values = map(diagnostic -> map(_plot_function(diagnostic), groups), diagnostics)
+    return center, density, values
+end
+
 """
-    slice_plot(particle_group, keys...; n_slice=40, slice_key=nothing, xlim=nothing, ylim=nothing, tex=true, kwargs...)
+    slice_plot(particle_group, diagnostics...; n_slice=40, slice_key=nothing, xlim=nothing, ylim=nothing, tex=true, kwargs...)
 
 Complete slice plotting routine. Will plot the density of the slice key on the right axis.
 
 # Arguments
 - `particle_group`: ParticleGroup object to plot
-- `keys`: Keys to calculate the statistics, e.g. `sigma_x`
+- Diagnostics: pass functions such as norm_emit_x, or a label => function pair.
 - `n_slice`: Number of slices (default: 40)
 - `slice_key`: Dimension to slice in (default: automatically determined)
 - `xlim`: Manual setting of x-axis limits
@@ -50,42 +64,12 @@ Complete slice plotting routine. Will plot the density of the slice key on the r
 # Returns
 - `p`: Plots.Plot object
 """
-function slice_plot(particle_group, keys...; n_slice=40, slice_key=nothing, xlim=nothing, ylim=nothing, tex=true, kwargs...)
-    # Determine slice key if not provided
-    if isnothing(slice_key)
-        if in_t_coordinates(particle_group)
-            slice_key = "z"
-        else
-            slice_key = "t"
-        end
-    end
-
-    # Convert keys to a vector of strings
-    keys_vec = collect(keys)
-    push!(keys_vec, "mean_" * slice_key)
-    push!(keys_vec, "ptp_" * slice_key)
-    push!(keys_vec, "charge")
-
-    # Handle delta prefix
-    has_delta_prefix = false
-    if startswith(slice_key, "delta_")
-        slice_key = slice_key[7:end]
-        has_delta_prefix = true
-    end
-
-    # Get slice data
-    x_key = "mean_" * slice_key
-    slice_dat = slice_statistics(particle_group; keys=keys_vec, n_slice=n_slice, slice_key=slice_key)
-    slice_dat["density"] = slice_dat["charge"] ./ slice_dat["ptp_" * slice_key]
-    y2_key = "density"
-
+function slice_plot(particle_group, diagnostics...; n_slice=40, slice_key=nothing, xlim=nothing, ylim=nothing, tex=true, kwargs...)
+    by = isnothing(slice_key) ? (in_t_coordinates(particle_group) ? :z : :t) : slice_key
+    keys = map(_plot_key, diagnostics)
+    x, density, values = _slice_plot_data(particle_group, by, n_slice, diagnostics)
+    slice_key = _plot_key(by)
     # X-axis
-    x = slice_dat["mean_" * slice_key]
-    if has_delta_prefix
-        x .-= particle_group["mean_" * slice_key]
-        slice_key = "delta_" * slice_key
-    end
-
     x, f1, p1, xmin, xmax = plottable_array(x; lim=xlim)
     ux = p1 * string(pg_units(slice_key))
 
@@ -97,8 +81,8 @@ function slice_plot(particle_group, keys...; n_slice=40, slice_key=nothing, xlim
     end
     uy_str = string(uy)
 
-    ymin = maximum(minimum(slice_dat[k]) for k in keys)
-    ymax = maximum(maximum(slice_dat[k]) for k in keys)
+    ymin = minimum(minimum, values)
+    ymax = maximum(maximum, values)
 
     _, f2, p2, ymin, ymax = plottable_array([ymin, ymax]; lim=ylim)
     uy_str = p2 * uy_str
@@ -113,9 +97,9 @@ function slice_plot(particle_group, keys...; n_slice=40, slice_key=nothing, xlim
     # Main curves
     color = length(keys) == 1 ? :black : nothing
 
-    for k in keys
+    for (k, y) in zip(keys, values)
         label = mathlabel(k, units=uy_str, tex=tex)
-        plot!(p, x, slice_dat[k] ./ f2, label=label, color=color)
+        plot!(p, x, y ./ f2, label=label, color=color)
     end
 
     if length(keys) > 1
@@ -123,10 +107,10 @@ function slice_plot(particle_group, keys...; n_slice=40, slice_key=nothing, xlim
     end
 
     # Density on right axis
-    y2, _, prey2, _, _ = plottable_array(slice_dat[y2_key]; lim=nothing)
+    y2, _, prey2, _, _ = plottable_array(density; lim=nothing)
 
     # Convert to Amps if possible
-    y2_units = "C/" * string(pg_units(x_key))
+    y2_units = "C/" * string(pg_units(slice_key))
     if y2_units == "C/s"
         y2_units = "A"
     end
@@ -135,7 +119,7 @@ function slice_plot(particle_group, keys...; n_slice=40, slice_key=nothing, xlim
     # Labels
     labelx = mathlabel(slice_key, units=ux, tex=tex)
     labely = mathlabel(keys..., units=uy, tex=tex)
-    labely2 = mathlabel(y2_key, units=y2_units, tex=tex)
+    labely2 = mathlabel("density", units=y2_units, tex=tex)
 
     xlabel!(p, labelx)
     ylabel!(p, labely)
@@ -149,13 +133,13 @@ function slice_plot(particle_group, keys...; n_slice=40, slice_key=nothing, xlim
 end
 
 """
-    density_plot(particle_group, key="x"; bins=nothing, xlim=nothing, tex=true, kwargs...)
+    density_plot(particle_group, key=:x; bins=nothing, xlim=nothing, tex=true, kwargs...)
 
 1D density plot.
 
 # Arguments
 - `particle_group`: ParticleGroup object to plot
-- `key`: Key to plot (default: "x")
+- `key`: Key to plot (default: :x)
 - `bins`: Number of bins (default: automatically determined)
 - `xlim`: Manual setting of x-axis limits
 - `tex`: Use TEX for labels (default: true)
@@ -163,20 +147,20 @@ end
 # Returns
 - `p`: Plots.Plot object
 """
-function density_plot(particle_group, key="x"; bins=nothing, xlim=nothing, tex=true, kwargs...)
+function density_plot(particle_group, key=:x; bins=nothing, xlim=nothing, tex=true, kwargs...)
     if isnothing(bins)
         n = length(particle_group)
-        bins = Int(sqrt(n/4))
+        bins = max(1, floor(Int, sqrt(n/4)))
     end
 
     # Scale to nice units
-    x, f1, p1, xmin, xmax = plottable_array(particle_group[key]; lim=xlim)
-    w = particle_group["weight"]
-    u1 = string(pg_units(key))
+    x, f1, p1, xmin, xmax = plottable_array(_particle_values(particle_group, key); lim=xlim)
+    w = particle_group.weight
+    u1 = string(pg_units(_plot_key(key)))
     ux = p1 * u1
 
     # Create label
-    labelx = mathlabel(key, units=ux, tex=tex)
+    labelx = mathlabel(_plot_key(key), units=ux, tex=tex)
 
     # Create histogram
     hist = fit(Histogram, x, weights(w), nbins=bins)
@@ -201,14 +185,14 @@ function density_plot(particle_group, key="x"; bins=nothing, xlim=nothing, tex=t
 end
 
 """
-    marginal_plot(particle_group, key1="t", key2="p"; bins=nothing, xlim=nothing, ylim=nothing, tex=true, ellipse=false, kwargs...)
+    marginal_plot(particle_group, key1=:t, key2=momentum; bins=nothing, xlim=nothing, ylim=nothing, tex=true, ellipse=false, kwargs...)
 
 Density plot and projections.
 
 # Arguments
 - `particle_group`: ParticleGroup object to plot
-- `key1`: Key for x-axis (default: "t")
-- `key2`: Key for y-axis (default: "p")
+- `key1`: Key for x-axis (default: :t)
+- `key2`: Key for y-axis (default: momentum)
 - `bins`: Number of bins (default: automatically determined)
 - `xlim`: Manual setting of x-axis limits
 - `ylim`: Manual setting of y-axis limits
@@ -218,15 +202,15 @@ Density plot and projections.
 # Returns
 - `p`: Plots.Plot object
 """
-function marginal_plot(particle_group, key1="t", key2="p"; bins=nothing, xlim=nothing, ylim=nothing, tex=true, ellipse=false, kwargs...)
+function marginal_plot(particle_group, key1=:t, key2=momentum; bins=nothing, xlim=nothing, ylim=nothing, tex=true, ellipse=false, kwargs...)
     if isnothing(bins)
         n = length(particle_group)
-        bins = Int(sqrt(n/4))
+        bins = max(1, floor(Int, sqrt(n/4)))
     end
 
     # Get data
-    x = particle_group[key1]
-    y = particle_group[key2]
+    x = _particle_values(particle_group, key1)
+    y = _particle_values(particle_group, key2)
 
     if length(x) == 1
         bins = 100
@@ -252,16 +236,16 @@ function marginal_plot(particle_group, key1="t", key2="p"; bins=nothing, xlim=no
     # Scale to nice units
     x, f1, p1, xmin, xmax = plottable_array(x; lim=xlim)
     y, f2, p2, ymin, ymax = plottable_array(y; lim=ylim)
-    w = particle_group["weight"]
+    w = particle_group.weight
 
-    u1 = string(pg_units(key1))
-    u2 = string(pg_units(key2))
+    u1 = string(pg_units(_plot_key(key1)))
+    u2 = string(pg_units(_plot_key(key2)))
     ux = p1 * u1
     uy = p2 * u2
 
     # Create labels
-    labelx = mathlabel(key1, units=ux, tex=tex)
-    labely = mathlabel(key2, units=uy, tex=tex)
+    labelx = mathlabel(_plot_key(key1), units=ux, tex=tex)
+    labely = mathlabel(_plot_key(key2), units=uy, tex=tex)
 
     # Calculate plot limits
     plot_xlim = isnothing(xlim) ? (xmin/f1, xmax/f1) : xlim
@@ -288,7 +272,7 @@ function marginal_plot(particle_group, key1="t", key2="p"; bins=nothing, xlim=no
 
     # Add ellipse if requested
     if ellipse
-        sigma_mat2 = StatsBase.cov(particle_group, key1, key2)
+        sigma_mat2 = covariance_matrix(particle_group, key1, key2)
         x_ellipse, y_ellipse = _sigma_ellipse(sigma_mat2)
         x_ellipse .+= Statistics.mean(particle_group, key1)
         y_ellipse .+= Statistics.mean(particle_group, key2)
@@ -332,15 +316,15 @@ function marginal_plot(particle_group, key1="t", key2="p"; bins=nothing, xlim=no
 end
 
 """
-    density_and_slice_plot(particle_group, key1="t", key2="p"; stat_keys=["norm_emit_x", "norm_emit_y"], bins=100, n_slice=30, tex=true)
+    density_and_slice_plot(particle_group, key1=:t, key2=momentum; diagnostics=(norm_emit_x, norm_emit_y), bins=100, n_slice=30, tex=true)
 
 Combined density and slice plot.
 
 # Arguments
 - `particle_group`: ParticleGroup object to plot
-- `key1`: Key for x-axis (default: "t")
-- `key2`: Key for y-axis (default: "p")
-- `stat_keys`: Statistics keys to plot (default: ["norm_emit_x", "norm_emit_y"])
+- `key1`: Key for x-axis (default: :t)
+- `key2`: Key for y-axis (default: momentum)
+- Diagnostics: functions to plot (default: normalized x and y emittance).
 - `bins`: Number of bins (default: 100)
 - `n_slice`: Number of slices (default: 30)
 - `tex`: Use TEX for labels (default: true)
@@ -348,20 +332,20 @@ Combined density and slice plot.
 # Returns
 - `p`: Plots.Plot object
 """
-function density_and_slice_plot(particle_group, key1="t", key2="p"; stat_keys=["norm_emit_x", "norm_emit_y"], bins=100, n_slice=30, tex=true)
+function density_and_slice_plot(particle_group, key1=:t, key2=momentum; diagnostics=(norm_emit_x, norm_emit_y), bins=100, n_slice=30, tex=true)
     # Scale to nice units
-    x, f1, p1, xmin, xmax = plottable_array(particle_group[key1])
-    y, f2, p2, ymin, ymax = plottable_array(particle_group[key2])
-    w = particle_group["weight"]
+    x, f1, p1, xmin, xmax = plottable_array(_particle_values(particle_group, key1))
+    y, f2, p2, ymin, ymax = plottable_array(_particle_values(particle_group, key2))
+    w = particle_group.weight
 
-    u1 = string(pg_units(key1))
-    u2 = string(pg_units(key2))
+    u1 = string(pg_units(_plot_key(key1)))
+    u2 = string(pg_units(_plot_key(key2)))
     ux = p1 * u1
     uy = p2 * u2
 
     # Create labels
-    labelx = mathlabel(key1, units=ux, tex=tex)
-    labely = mathlabel(key2, units=uy, tex=tex)
+    labelx = mathlabel(_plot_key(key1), units=ux, tex=tex)
+    labely = mathlabel(_plot_key(key2), units=uy, tex=tex)
 
     # Create plot
     p = plot()
@@ -373,22 +357,15 @@ function density_and_slice_plot(particle_group, key1="t", key2="p"; stat_keys=["
     H = fit(Histogram, (x, y), weights(w), nbins=bins)
     heatmap!(p, H.edges[1], H.edges[2], H.weights', color=CMAP0, clims=(1e-16, Inf))
 
-    # Get slice data
-    slice_dat = slice_statistics(
-        particle_group,
-        n_slice=n_slice,
-        slice_key=key1,
-        keys=vcat(stat_keys, ["ptp_" * key1, "mean_" * key1, "charge"])
-    )
-
-    slice_dat["density"] = slice_dat["charge"] ./ slice_dat["ptp_" * key1]
+    centers, density, values = _slice_plot_data(particle_group, key1, n_slice, diagnostics)
 
     # Add slice statistics
     p2 = twinx(p)
-    x2 = slice_dat["mean_" * key1] ./ f1
-    ulist = [pg_units(k) for k in stat_keys]
+    x2 = centers ./ f1
+    stat_keys = map(_plot_key, diagnostics)
+    ulist = map(pg_units, stat_keys)
 
-    max2 = maximum(ptp(slice_dat[k]) for k in stat_keys)
+    max2 = maximum(ptp, values)
     f3, p3 = nice_scale_prefix(max2)
 
     u2 = ulist[1]
@@ -396,17 +373,16 @@ function density_and_slice_plot(particle_group, key1="t", key2="p"; stat_keys=["
     u2 = p3 * string(u2)
     labely2 = mathlabel(stat_keys..., units=u2, tex=tex)
 
-    for k in stat_keys
+    for (k, y) in zip(stat_keys, values)
         label = mathlabel(k, units=u2, tex=tex)
-        plot!(p2, x2, slice_dat[k] ./ f3, label=label)
+        plot!(p2, x2, y ./ f3, label=label)
     end
 
     plot!(p2, legend=true)
     ylabel!(p2, labely2)
 
     # Add density
-    y2 = slice_dat["density"]
-    y2 = y2 .* max2 ./ maximum(y2) ./ f3 ./ 2
+    y2 = density .* max2 ./ maximum(density) ./ f3 ./ 2
     plot!(p2, x2, y2, fillrange=0, fillalpha=0.2, color=:gray, w=0)
     return p
 end
