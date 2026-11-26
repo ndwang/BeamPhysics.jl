@@ -14,7 +14,7 @@ See [`ParticleGroup`](@ref) in the [API Reference](@ref api) for the full type d
 using BeamPhysics
 
 # Load from an openPMD HDF5 file
-pg = read_particle_group("particles.h5")
+pg = ParticleGroup("particles.h5")
 
 # Create a single test particle
 pg = single_particle(z=0.01, pz=1e6)
@@ -24,7 +24,7 @@ using AtomicAndPhysicalConstants: Species
 pg = ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species=Species("electron"))
 ```
 
-See [`single_particle`](@ref) and [`read_particle_group`](@ref).
+See [`single_particle`](@ref) and [`ParticleGroup`](@ref).
 
 ## Accessing Properties
 

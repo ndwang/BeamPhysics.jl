@@ -16,7 +16,7 @@ Pkg.add("BeamPhysics")
 ```julia
 using BeamPhysics, Statistics
 
-pg = read_particle_group("particles.h5")
+pg = ParticleGroup("particles.h5")
 std(pg, :x)       # weighted std of x [m]
 norm_emit_x(pg)   # normalized x emittance [m]
 twiss(pg; plane=:x)

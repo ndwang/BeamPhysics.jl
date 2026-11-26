@@ -10,7 +10,7 @@ import BeamPhysics:
     particle_amplitude, normalized_particle_coordinate,
     delta, ptp
 
-const _STAT_BEAM = read_particle_group(joinpath(@__DIR__, "initial_particles.h5"))
+const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
 
 @testset "Statistics and Beam Physics" begin
 

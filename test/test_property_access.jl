@@ -1,6 +1,6 @@
 using AtomicAndPhysicalConstants: Species, massof, E_CHARGE
 
-const _PROP_BEAM = read_particle_group(joinpath(@__DIR__, "initial_particles.h5"))
+const _PROP_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
 
 @testset "Property Access" begin
 

@@ -352,13 +352,13 @@ end
 # ---- Particle file I/O ----
 
 """
-    read_particle_group(h5::HDF5.Group)
+    ParticleGroup(h5::HDF5.Group)
 
 Load a `ParticleGroup` from an open HDF5 group in openPMD-beamphysics format.
 The group may point directly to a species subgroup or to a path containing
 exactly one species. Particle coordinates are returned in m, momenta in eV/c, and time in s.
 """
-function read_particle_group(h5::HDF5.Group)
+function ParticleGroup(h5::HDF5.Group)
 
     if !haskey(h5, "position")
         species = keys(h5)
@@ -397,14 +397,14 @@ function read_particle_group(h5::HDF5.Group)
 end
 
 """
-    read_particle_group(file::AbstractString)
+    ParticleGroup(file::AbstractString)
 
 Load particles into a ParticleGroup from an HDF5 file in openPMD format.
 """
-function read_particle_group(file::AbstractString)
+function ParticleGroup(file::AbstractString)
     h5open(file, "r") do h5
         pp = particle_paths(h5)
         @assert length(pp) == 1 "Number of particle paths in $file is $(length(pp))."
-        return read_particle_group(h5[pp[1]])
+        return ParticleGroup(h5[pp[1]])
     end
 end

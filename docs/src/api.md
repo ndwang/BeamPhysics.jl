@@ -15,8 +15,8 @@ PMDUnit
 
 ```@docs
 single_particle
-read_particle_group(h5::HDF5.Group)
-read_particle_group(file::AbstractString)
+ParticleGroup(h5::HDF5.Group)
+ParticleGroup(file::AbstractString)
 ```
 
 ## Particle Derived Properties

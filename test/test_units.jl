@@ -487,7 +487,7 @@ end
     tmpfile = tempname() * ".h5"
     try
         write_particle_group(tmpfile, pg)
-        pg2 = read_particle_group(tmpfile)
+        pg2 = ParticleGroup(tmpfile)
         @test length(pg2) == 1
         @test pg2.x  ≈ pg.x   rtol=1e-12
         @test pg2.px ≈ pg.px  rtol=1e-12

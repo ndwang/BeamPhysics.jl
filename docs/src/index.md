@@ -24,7 +24,7 @@ Pkg.add("BeamPhysics")
 using BeamPhysics, Statistics
 
 # Load particles from an openPMD HDF5 file
-pg = read_particle_group("particles.h5")
+pg = ParticleGroup("particles.h5")
 
 # Access particle properties
 pg.x           # x positions [m]

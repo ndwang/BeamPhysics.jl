@@ -82,7 +82,7 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
             tmpfile = tempname() * ".h5"
             try
                 write_particle_group(tmpfile, pg)
-                pg2 = read_particle_group(tmpfile)
+                pg2 = ParticleGroup(SubString(tmpfile, 1))
                 @test length(pg2) == 1
                 @test pg2.x  ≈ pg.x   rtol=1e-12
                 @test pg2.px ≈ pg.px  rtol=1e-12
@@ -98,11 +98,11 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         end
 
         @testset "real beam from initial_particles.h5" begin
-            pg = read_particle_group(_PARTICLE_FILE)
+            pg = ParticleGroup(_PARTICLE_FILE)
             tmpfile = tempname() * ".h5"
             try
                 write_particle_group(tmpfile, pg)
-                pg2 = read_particle_group(tmpfile)
+                pg2 = ParticleGroup(tmpfile)
                 @test length(pg2) == length(pg)
                 @test isapprox(pg, pg2; rtol=1e-12)
             finally
@@ -391,7 +391,7 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
                 g = create_group(h5, "data/1")
                 write_pmd_bunch(g, particle_data_dict(pg))
             end
-            pg2 = read_particle_group(tmpfile)
+            pg2 = ParticleGroup(tmpfile)
             @test isapprox(pg, pg2; rtol=1e-12)
         finally
             rm(tmpfile; force=true)

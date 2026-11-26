@@ -51,7 +51,7 @@ export particle_paths, field_paths, load_field_attrs
 export is_constant_component, constant_component_value
 export component_data, offset_component_name, particle_array, all_components, component_str
 export pmd_init, pmd_field_init, write_component_data, write_pmd_bunch, write_pmd_field
-export particle_data_dict, read_particle_group, write_particle_group
+export particle_data_dict, write_particle_group
 
 # Units & display
 export PMDUnit, nice_scale_prefix, nice_array, pg_units, limits, plottable_array
