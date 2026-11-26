@@ -17,6 +17,54 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
 
 @testset "I/O (openPMD)" begin
 
+    # External fixtures from Python openPMD-beamphysics (3110930). h5py writes
+    # the particle IDs as UInt64, including one above the signed 64-bit range.
+    @testset "Python openPMD files" begin
+        fixture(name) = joinpath(@__DIR__, "fixtures", name)
+        fm = FieldMesh(fixture("openpmd_python_rf.h5"))
+        ex = [100i + 10j + k + im*(1+i-2k) for i in 0:1, j in 0:2, k in 0:3]
+        @test fm.components["electricField/x"] == ex
+        @test fm["Ex"] ≈ ex .* (-2im)
+        @test fm.components["magneticField/z"] == fill(3 + 2im, size(ex))
+        @test fm.metadata["gridLowerBound"] == [-1, 2, 3]
+        @test fm.metadata["customParameter"] == 42
+        h5open(fixture("openpmd_python_rf.h5")) do h5
+            g = h5[only(field_paths(h5))]
+            axes = Tuple(attrs(g)["axisLabels"])
+            cut = (2, 2:3, 2:4)
+            @test component_data(g["electricField/x"]; axis_labels=axes, slice=cut) == ex[cut...]
+            @test component_data(g["magneticField/z"]; axis_labels=axes, slice=cut) == fill(3 + 2im, 2, 3)
+        end
+
+        path = fixture("openpmd_python_particles.h5")
+        pg = ParticleGroup(path)
+        ids = UInt64[101, 207, (UInt64(1) << 63) + 5]
+        @test pg.id == ids
+        @test pg.t ≈ [3, 7, 11] .* 1e-9
+        @test pg.extra[:spin_x] ≈ [1, 0, 0]
+        @test pg.extra[:p0c] ≈ fill(2e6, 3)
+        @test view(pg, 2:3).extra[:ix_ele] == [0, 2]
+
+        mktempdir() do dir
+            file = joinpath(dir, "particles.h5")
+            raw = ParticleGroup(path; include_time_offset=false)
+            @test raw.t ≈ [0, 1, 2] .* 1e-9
+            write_particle_group(file, raw; t_offset=[3, 6, 9] .* 1e-9)
+            @test isapprox(ParticleGroup(file), pg)
+            @test ParticleGroup(file).id == ids
+
+            file = joinpath(dir, "field.h5")
+            write_fieldmesh(file, fm)
+            h5open(file) do h5
+                g = h5[only(field_paths(h5))]
+                @test read(g["electricField/x"]) == permutedims(ex, (3, 2, 1))
+                @test attrs(g["magneticField/z"])["shape"] == collect(size(ex))
+            end
+            @test FieldMesh(file) == fm
+        end
+    end
+
+
     # ── pmd_init / pmd_field_init ──────────────────────────────────────────
 
     @testset "pmd_init / pmd_field_init" begin
@@ -432,7 +480,7 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
                 @test a["eleAnchorPt"]  == "center"
                 @test a["gridSize"]     == [10, 10, 10]
                 # Ex should be written as constant (all zeros)
-                @test haskey(g, "Ex")
+                @test haskey(g, "electricField/x")
             end
         finally
             rm(tmpfile; force=true)

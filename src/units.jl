@@ -422,11 +422,10 @@ end
 Read unit metadata from an HDF5 handle and return a `PMDUnit`.
 """
 function read_unit_h5(h5)
-    sym = String(attrs(h5)["unitSymbol"])
-    haskey(KNOWN_UNIT, sym) && return KNOWN_UNIT[sym]
-    # Fallback: reconstruct from raw attributes
-    return PMDUnit(sym, Float64(attrs(h5)["unitSI"]),
-                   NTuple{7,Float64}(attrs(h5)["unitDimension"]))
+    a = attrs(h5)
+    sym = String(get(a, "unitSymbol", "unknown"))
+    return PMDUnit(sym, _to_scalar(Float64, a["unitSI"]),
+                   NTuple{7,Float64}(a["unitDimension"]))
 end
 
 """
@@ -506,6 +505,15 @@ const PARTICLEGROUP_UNITS = Dict{String, PMDUnit}(
     "n_particle" => _DL,
     "status"     => _DL,
     "id"         => _DL,
+    "ix_branch"  => _DL,
+    "ix_ele"     => _DL,
+    "location"   => _DL,
+    "charge_state" => _DL,
+    "s"          => _M,
+    "p0c"        => _PC,
+    "spin_x"     => PMDUnit("hbar", H_BAR * J_PER_EV, (2., 1., -1., 0., 0., 0., 0.)),
+    "spin_y"     => PMDUnit("hbar", H_BAR * J_PER_EV, (2., 1., -1., 0., 0., 0., 0.)),
+    "spin_z"     => PMDUnit("hbar", H_BAR * J_PER_EV, (2., 1., -1., 0., 0., 0., 0.)),
     "n_alive"    => _DL,
     "n_dead"     => _DL,
 

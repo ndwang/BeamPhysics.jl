@@ -538,14 +538,14 @@ function _fieldmesh_onaxis_cylindrical(fm::FieldMesh; kwargs...)
     p = plot(; xlabel="\$z\$ (m)", kwargs...)
 
     if has_Ez
-        Ez0 = fm["Ez"][1, 1, :]
+        Ez0 = real.(fm["Ez"][1, 1, :])
         Ez_scaled, fac, prefix = nice_array(Ez0)
         plot!(p, z, Ez_scaled;
             label=mathlabel("Ez"; units=prefix * string(pg_units("Ez"))),
             color=:black)
     end
     if has_Bz
-        Bz0 = fm["Bz"][1, 1, :]
+        Bz0 = real.(fm["Bz"][1, 1, :])
         Bz_scaled, fac, prefix = nice_array(Bz0)
         if has_Ez
             p2 = twinx(p)
@@ -577,7 +577,7 @@ function _fieldmesh_onaxis_rectangular(fm::FieldMesh; kwargs...)
 
     for (comp, alias) in field_keys
         haskey(fm.components, comp) || continue
-        fdat = fm[alias][ix, iy, :]
+        fdat = real.(fm[alias][ix, iy, :])
         all(iszero, fdat) && continue
         f_scaled, fac, prefix = nice_array(fdat)
         plot!(p, z, f_scaled;

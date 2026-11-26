@@ -31,11 +31,11 @@ Gridded electromagnetic field data in openPMD-beamphysics format.
 - `rf_phase`: RF phase in units of 2π (openPMD `RFphase`)
 - `field_scale`: overall field scale factor
 - `components`: Dict mapping openPMD names (e.g. `"magneticField/z"`) to 3D arrays
+- metadata: other openPMD field attributes preserved on write
 
 # Constructors
-- `FieldMesh(filename::String)` — from HDF5 file
+- `FieldMesh(filename::AbstractString)` — from HDF5 file
 - `FieldMesh(h5::HDF5.Group)` — from open HDF5 group
-- Keyword constructor for programmatic creation
 
 # Examples
 ```julia
@@ -56,17 +56,18 @@ mutable struct FieldMesh
     fundamental_frequency::Float64
     rf_phase::Float64
     field_scale::Float64
-    components::Dict{String, Array{Float64, 3}}
+    components::Dict{String, Array{<:Number, 3}}
+    metadata::Dict{String, Any}
 end
 
 # ── Constructors ──────────────────────────────────────────────────────────
 
 """
-    FieldMesh(filename::String)
+    FieldMesh(filename::AbstractString)
 
 Load a FieldMesh from an openPMD-beamphysics HDF5 file.
 """
-function FieldMesh(filename::String)
+function FieldMesh(filename::AbstractString)
     h5open(filename, "r") do h5
         fp = field_paths(h5)
         isempty(fp) && error("No field paths found in $filename")
@@ -81,39 +82,57 @@ end
 Load a FieldMesh from an open HDF5 group.
 """
 function FieldMesh(h5::HDF5.Group)
-    a, _ = load_field_attrs(attrs(h5))
+    a, metadata = load_field_attrs(attrs(h5))
 
     geometry = String(a["gridGeometry"])
-    axis_labels = NTuple{3, String}(String.(a["axisLabels"]))
+    file_axes = NTuple{3, String}(String.(a["axisLabels"]))
+    axis_labels = AXIS_LABELS_FROM_GEOMETRY[geometry]
     grid_origin = NTuple{3, Float64}(a["gridOriginOffset"])
     grid_spacing = NTuple{3, Float64}(a["gridSpacing"])
     grid_size = NTuple{3, Int}(a["gridSize"])
     ele_anchor_pt = String(a["eleAnchorPt"])
     harmonic = _to_scalar(Int, a["harmonic"])
-    fundamental_frequency = Float64(get(a, "fundamentalFrequency", 0))
-    rf_phase = Float64(get(a, "RFphase", 0))
+    fundamental_frequency = _to_scalar(Float64, a["fundamentalFrequency"])
+    rf_phase = _to_scalar(Float64, a["RFphase"])
     field_scale = _to_scalar(Float64, a["fieldScale"])
 
-    components = Dict{String, Array{Float64, 3}}()
+    components = Dict{String, Array{<:Number, 3}}()
     for (record, comp_names) in FIELD_RECORD_COMPONENTS
         haskey(h5, record) || continue
         for cname in comp_names
             haskey(h5[record], cname) || continue
             key = record * "/" * cname
-            cdat = component_data(h5[key]; axis_labels=axis_labels)
-            # Ensure 3D Float64 array
-            cdat = Array{Float64, 3}(real(cdat))
-            components[key] = cdat
+            node = h5[key]
+            cdat = component_data(node; axis_labels=file_axes)
+            dim = Tuple(attrs(node)["unitDimension"])
+            dim == EXPECTED_RECORD_UNIT_DIMENSION[record] ||
+                throw(ArgumentError("$key has incompatible unitDimension $dim"))
+            size(cdat) == grid_size ||
+                throw(DimensionMismatch("$key has size $(size(cdat)); expected $grid_size"))
+            components[key] = iszero(harmonic) && !(eltype(cdat) <: Real) ? real.(cdat) : cdat
         end
     end
 
+    for key in ("gridLowerBound", "name", "gridCurvatureRadius", "masterParameter")
+        if haskey(a, key)
+            metadata[key] = a[key]
+        end
+    end
     return FieldMesh(geometry, axis_labels, grid_origin, grid_spacing, grid_size,
                      ele_anchor_pt, harmonic, fundamental_frequency, rf_phase,
-                     field_scale, components)
+                     field_scale, components, metadata)
+end
+
+function FieldMesh(geometry, axis_labels, grid_origin, grid_spacing, grid_size,
+                   ele_anchor_pt, harmonic, fundamental_frequency, rf_phase,
+                   field_scale, components)
+    return FieldMesh(geometry, axis_labels, grid_origin, grid_spacing, grid_size,
+                     ele_anchor_pt, harmonic, fundamental_frequency, rf_phase,
+                     field_scale, components, Dict{String, Any}("gridLowerBound" => [0, 0, 0]))
 end
 
 """Extract a scalar from a value that might be a 1-element array."""
-_to_scalar(T, x::AbstractArray) = T(x[1])
+_to_scalar(T, x::AbstractArray) = T(only(x))
 _to_scalar(T, x) = T(x)
 
 # ── Grid accessors ────────────────────────────────────────────────────────
@@ -395,29 +414,29 @@ end
 Convert FieldMesh to the data dict format expected by `write_pmd_field`.
 """
 function _to_data_dict(fm::FieldMesh)
-    attrs = Dict{String, Any}(
+    attrs = merge(fm.metadata, Dict{String, Any}(
         "gridGeometry" => fm.geometry,
         "axisLabels" => collect(fm.axis_labels),
         "gridOriginOffset" => collect(fm.grid_origin),
         "gridSpacing" => collect(fm.grid_spacing),
         "gridSize" => collect(fm.grid_size),
-        "gridLowerBound" => [0, 0, 0],
+        "gridLowerBound" => get(fm.metadata, "gridLowerBound", [0, 0, 0]),
         "eleAnchorPt" => fm.ele_anchor_pt,
         "harmonic" => fm.harmonic,
         "fundamentalFrequency" => fm.fundamental_frequency,
         "RFphase" => fm.rf_phase,
         "fieldScale" => fm.field_scale,
-    )
+    ))
     components = Dict{String, Array}(k => v for (k, v) in fm.components)
     return Dict{String, Any}("attrs" => attrs, "components" => components)
 end
 
 """
-    write_fieldmesh(filename::String, fm::FieldMesh)
+    write_fieldmesh(filename::AbstractString, fm::FieldMesh)
 
 Write a FieldMesh to a new openPMD-beamphysics HDF5 file.
 """
-function write_fieldmesh(filename::String, fm::FieldMesh)
+function write_fieldmesh(filename::AbstractString, fm::FieldMesh)
     h5open(filename, "w") do h5
         pmd_field_init(h5)
         g = create_group(h5, "ExternalFieldPath/1")
@@ -451,6 +470,7 @@ function Base.:(==)(a::FieldMesh, b::FieldMesh)
     a.fundamental_frequency == b.fundamental_frequency || return false
     a.rf_phase == b.rf_phase || return false
     a.field_scale == b.field_scale || return false
+    a.metadata == b.metadata || return false
     keys(a.components) == keys(b.components) || return false
     return all(a.components[k] == b.components[k] for k in keys(a.components))
 end
@@ -458,5 +478,5 @@ end
 Base.copy(fm::FieldMesh) = FieldMesh(
     fm.geometry, fm.axis_labels, fm.grid_origin, fm.grid_spacing, fm.grid_size,
     fm.ele_anchor_pt, fm.harmonic, fm.fundamental_frequency, fm.rf_phase,
-    fm.field_scale, Dict(k => copy(v) for (k, v) in fm.components)
+    fm.field_scale, Dict(k => copy(v) for (k, v) in fm.components), deepcopy(fm.metadata)
 )

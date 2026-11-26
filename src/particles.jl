@@ -13,13 +13,14 @@ Array fields are parameterized so they can be `Vector`, `CuArray`, or any `Abstr
 - `status::AI`: particle status (1 for alive, 0 for dead)
 - `weight::AT`: macro-particle charge in [C]
 - `species::Species`: particle species
-- `id::AId`: optional particle IDs
+- `id::AId`: particle IDs
+- `extra`: optional per-particle openPMD records
 """
 
 struct ParticleGroup{T<:Real, I<:Integer,
                      AT<:AbstractVector{T},
                      AI<:AbstractVector{I},
-                     AId<:AbstractVector{Int}} <: AbstractParticleGroup{T,I}
+                     AId<:AbstractVector{<:Integer}} <: AbstractParticleGroup{T,I}
     x::AT
     px::AT
     y::AT
@@ -31,16 +32,18 @@ struct ParticleGroup{T<:Real, I<:Integer,
     weight::AT
     species::Species
     id::AId
+    extra::Dict{Symbol, AbstractVector}
 end
 
 """
-    ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species, id=collect(1:length(x)))
+    ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species, id=collect(1:length(x)), extra=Dict{Symbol, AbstractVector}())
 
 Construct a particle group from named columns. Arrays are stored without copying.
 """
 function ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species,
-                       id=collect(1:length(x)))
-    return ParticleGroup(x, px, y, py, z, pz, t, status, weight, species, id)
+                       id=collect(1:length(x)), extra=Dict{Symbol, AbstractVector}())
+    return ParticleGroup(x, px, y, py, z, pz, t, status, weight, species, id,
+                         Dict{Symbol, AbstractVector}(extra))
 end
 """
     ParticleGroupView
@@ -52,7 +55,7 @@ parent storage, so mutating a `ParticleGroupView` mutates the original data.
 struct ParticleGroupView{T<:Real, I<:Integer,
                          AT<:AbstractVector{T},
                          AI<:AbstractVector{I},
-                         AId<:AbstractVector{Int}} <: AbstractParticleGroup{T,I}
+                         AId<:AbstractVector{<:Integer}} <: AbstractParticleGroup{T,I}
     x::AT
     px::AT
     y::AT
@@ -64,6 +67,7 @@ struct ParticleGroupView{T<:Real, I<:Integer,
     weight::AT
     species::Species
     id::AId
+    extra::Dict{Symbol, AbstractVector}
 end
 
 function ParticleGroupView(pg::AbstractParticleGroup{T,I}, Iinds) where {T<:Real, I<:Integer}
@@ -73,7 +77,7 @@ function ParticleGroupView(pg::AbstractParticleGroup{T,I}, Iinds) where {T<:Real
         @view(pg.z[Iinds]), @view(pg.pz[Iinds]),
         @view(pg.t[Iinds]), @view(pg.status[Iinds]),
         @view(pg.weight[Iinds]), pg.species,
-        @view(pg.id[Iinds]),
+        @view(pg.id[Iinds]), Dict{Symbol, AbstractVector}(k => view(v, Iinds) for (k, v) in pg.extra),
     )
 end
 
@@ -98,7 +102,7 @@ function single_particle(;
     x, px, y, py, z, pz, t, weight = promote(x, px, y, py, z, pz, t, weight)
     return ParticleGroup(
         [x], [px], [y], [py], [z], [pz], [t],
-        [status], [weight], species, [1]
+        [status], [weight], species, [1], Dict{Symbol, AbstractVector}()
     )
 end
 
@@ -187,7 +191,7 @@ function Base.copy(pg::AbstractParticleGroup)
     return ParticleGroup(
         copy(pg.x), copy(pg.px), copy(pg.y), copy(pg.py),
         copy(pg.z), copy(pg.pz), copy(pg.t), copy(pg.status),
-        copy(pg.weight), pg.species, copy(pg.id)
+        copy(pg.weight), pg.species, copy(pg.id), Dict{Symbol, AbstractVector}(k => copy(v) for (k, v) in pg.extra)
     )
 end
 
@@ -283,7 +287,7 @@ function Base.:(==)(pg1::AbstractParticleGroup, pg2::AbstractParticleGroup)
             return false
         end
     end
-    return true
+    return pg1.extra == pg2.extra
 end
 
 function Base.isapprox(pg1::AbstractParticleGroup, pg2::AbstractParticleGroup; kwargs...)
@@ -300,7 +304,8 @@ function Base.isapprox(pg1::AbstractParticleGroup, pg2::AbstractParticleGroup; k
             return false
         end
     end
-    return true
+    keys(pg1.extra) == keys(pg2.extra) || return false
+    return all(isapprox(pg1.extra[k], pg2.extra[k]; kwargs...) for k in keys(pg1.extra))
 end
 
 # ---- Helper functions ----
@@ -324,7 +329,7 @@ function particle_parts(pg::ParticleGroup, idx)
     return ParticleGroup(
         pg.x[idx], pg.px[idx], pg.y[idx], pg.py[idx],
         pg.z[idx], pg.pz[idx], pg.t[idx], pg.status[idx],
-        pg.weight[idx], pg.species, pg.id[idx]
+        pg.weight[idx], pg.species, pg.id[idx], Dict{Symbol, AbstractVector}(k => v[idx] for (k, v) in pg.extra)
     )
 end
 
@@ -343,23 +348,36 @@ function join_particle_groups(pgs::AbstractParticleGroup...)
     status = reduce(vcat, (pg.status for pg in pgs))
     weight = reduce(vcat, (pg.weight for pg in pgs))
     id = reduce(vcat, (pg.id for pg in pgs))
+    all_extra = union((keys(pg.extra) for pg in pgs)...)
+    common = intersect((keys(pg.extra) for pg in pgs)...)
+    dropped = setdiff(all_extra, common)
+    isempty(dropped) || @warn "Dropping optional columns not present in every group" dropped
+    extra = Dict{Symbol, AbstractVector}(k => reduce(vcat, (pg.extra[k] for pg in pgs)) for k in common)
 
     return ParticleGroup(
-        x, px, y, py, z, pz, t, status, weight, species0, id
+        x, px, y, py, z, pz, t, status, weight, species0, id, extra
     )
 end
 
 # ---- Particle file I/O ----
 
 """
-    ParticleGroup(h5::HDF5.Group)
+    ParticleGroup(h5::Union{HDF5.Group,HDF5.File}; include_time_offset=true)
 
-Load a `ParticleGroup` from an open HDF5 group in openPMD-beamphysics format.
+Load a particle group from an open HDF5 file or group in openPMD-beamphysics format.
 The group may point directly to a species subgroup or to a path containing
-exactly one species. Particle coordinates are returned in m, momenta in eV/c, and time in s.
+exactly one species. Positions are returned in m, momenta in eV/c, and time in s.
+Set include_time_offset=false to read the time record without adding timeOffset.
 """
-function ParticleGroup(h5::HDF5.Group)
-
+function ParticleGroup(h5::Union{HDF5.Group,HDF5.File}; include_time_offset=true)
+    if haskey(attrs(h5), "basePath") && haskey(attrs(h5), "particlesPath")
+        paths = particle_paths(h5)
+        length(paths) == 1 || throw(ArgumentError("Expected one particle iteration, found $(length(paths))"))
+        path = strip(only(paths), '/')
+        if !isempty(path)
+            h5 = h5[path]
+        end
+    end
     if !haskey(h5, "position")
         species = keys(h5)
         if length(species) != 1
@@ -370,7 +388,7 @@ function ParticleGroup(h5::HDF5.Group)
 
     attributes = attrs(h5)
     species = Species(attributes["speciesType"])
-    n_particle = Int(attributes["numParticles"])
+    n_particle = _to_scalar(Int, attributes["numParticles"])
     total_charge = attributes["totalCharge"] * attributes["chargeUnitSI"]
 
     x = particle_array(h5, "x")
@@ -379,7 +397,7 @@ function ParticleGroup(h5::HDF5.Group)
     py = particle_array(h5, "py")
     z = particle_array(h5, "z")
     pz = particle_array(h5, "pz")
-    t = particle_array(h5, "t")
+    t = particle_array(h5, "t"; include_offset=include_time_offset)
 
     if haskey(h5, "particleStatus")
         status = particle_array(h5, "particleStatus")
@@ -389,22 +407,36 @@ function ParticleGroup(h5::HDF5.Group)
 
     if haskey(h5, "weight")
         weight = particle_array(h5, "weight")
+        length(weight) == 1 && (weight = fill(only(weight), n_particle))
     else
         weight = fill(total_charge / n_particle, n_particle)
     end
 
-    return ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species)
+    if haskey(h5, "id")
+        id = particle_array(h5, "id")
+    else
+        id = collect(1:n_particle)
+    end
+    extra = Dict{Symbol, AbstractVector}()
+    for key in OPTIONAL_PARTICLE_COLUMNS
+        alias = string(key)
+        if haskey(h5, COMPONENT_FROM_ALIAS[alias])
+            extra[key] = particle_array(h5, alias)
+        end
+    end
+    # A file can mix floating types across its records; a group uses one type.
+    T = promote_type(map(eltype, (x, px, y, py, z, pz, t, weight))...)
+    x, px, y, py, z, pz, t, weight = map(v -> convert(Vector{T}, v), (x, px, y, py, z, pz, t, weight))
+    return ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species, id, extra)
 end
 
 """
-    ParticleGroup(file::AbstractString)
+    ParticleGroup(file::AbstractString; include_time_offset=true)
 
 Load particles into a ParticleGroup from an HDF5 file in openPMD format.
 """
-function ParticleGroup(file::AbstractString)
+function ParticleGroup(file::AbstractString; include_time_offset=true)
     h5open(file, "r") do h5
-        pp = particle_paths(h5)
-        @assert length(pp) == 1 "Number of particle paths in $file is $(length(pp))."
-        return ParticleGroup(h5[pp[1]])
+        return ParticleGroup(h5; include_time_offset)
     end
 end

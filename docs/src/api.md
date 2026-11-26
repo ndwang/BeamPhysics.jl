@@ -15,7 +15,7 @@ PMDUnit
 
 ```@docs
 single_particle
-ParticleGroup(h5::HDF5.Group)
+ParticleGroup(h5::Union{HDF5.File,HDF5.Group})
 ParticleGroup(file::AbstractString)
 ```
 

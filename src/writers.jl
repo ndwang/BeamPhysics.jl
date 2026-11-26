@@ -30,26 +30,27 @@ function pmd_field_init(h5; externalFieldPath="/ExternalFieldPath/%T/")
 end
 
 """
-    write_component_data(h5, name, data; unit=nothing)
+    write_component_data(h5, name, data; unit=nothing, reverse_axes=true)
 
 Write a single record component to an HDF5 group.
 
 If all values in `data` are equal (constant component), a group is created with
 `value` and `shape` stored as attributes. Otherwise, a dataset is created.
 
+Multidimensional datasets are written in Python axis order by default.
+Set reverse_axes=false for a reversed openPMD axis layout.
+
 Unit metadata is written via `write_unit_h5` when `unit` is provided.
 """
-function write_component_data(h5, name, data; unit=nothing)
-    dat0 = data[1]
-
-    if all(x -> x == dat0, data)
+function write_component_data(h5, name, data; unit=nothing, reverse_axes=true)
+    if !isempty(data) && all(==(first(data)), data)
         # Constant component: store as group with value/shape attributes
         g = create_group(h5, name)
-        attrs(g)["value"] = dat0
+        attrs(g)["value"] = first(data)
         attrs(g)["shape"] = collect(size(data))
     else
         # Non-constant: store as dataset
-        h5[name] = data
+        h5[name] = reverse_axes && ndims(data) > 1 ? permutedims(data, Tuple(ndims(data):-1:1)) : data
         g = h5[name]
     end
 
@@ -61,7 +62,7 @@ function write_component_data(h5, name, data; unit=nothing)
 end
 
 """
-    write_pmd_bunch(h5, data::Dict; name=nothing)
+    write_pmd_bunch(h5, data::Dict; name=nothing, t_offset=0.0)
 
 Write particle bunch data in openPMD format.
 
@@ -72,9 +73,11 @@ Write particle bunch data in openPMD format.
 - Float key: `"charge"`
 - Optional array key: `"id"`
 
-See inverse routine: `ParticleGroup(h5::HDF5.Group)`
+Nonzero t_offset (a scalar or one value per particle, in seconds) is written as a timeOffset record.
+
+See inverse routine: `ParticleGroup(h5)`
 """
-function write_pmd_bunch(h5, data::Dict; name=nothing)
+function write_pmd_bunch(h5, data::Dict; name=nothing, t_offset=0.0)
     g = isnothing(name) ? h5 : create_group(h5, name)
 
     # Create species subgroup
@@ -97,6 +100,20 @@ function write_pmd_bunch(h5, data::Dict; name=nothing)
     # Optional id (no units)
     if haskey(data, "id")
         g["id"] = data["id"]
+    end
+
+    for key in OPTIONAL_PARTICLE_COLUMNS
+        alias = string(key)
+        if haskey(data, alias)
+            write_component_data(g, COMPONENT_FROM_ALIAS[alias], data[alias]; unit=pg_units(alias))
+        end
+    end
+
+    if !all(iszero, t_offset)
+        offsets = t_offset isa Number ? fill(Float64(t_offset), data["n_particle"]) : Float64.(t_offset)
+        size(offsets) == (data["n_particle"],) ||
+            throw(DimensionMismatch("time offset must contain one value per particle"))
+        write_component_data(g, "timeOffset", offsets; unit=pg_units("t"))
     end
 end
 
@@ -126,10 +143,17 @@ function write_pmd_field(h5, data::Dict; name=nothing)
     end
 
     # Write components
+    reverse_axes = !(Tuple(field_attrs["axisLabels"]) in REVERSED_FIELD_AXES)
+    grid_size = Tuple(field_attrs["gridSize"])
     for (key, val) in data["components"]
-        u = pg_units(key)
-        val = complex.(val)
-        write_component_data(g, key, val; unit=u)
+        component = get(COMPONENT_FROM_ALIAS, key, key)
+        record, axis = split(component, "/"; limit=2)
+        axis in get(FIELD_RECORD_COMPONENTS, record, ()) ||
+            throw(ArgumentError("Unknown field component: $key"))
+        size(val) == grid_size ||
+            throw(DimensionMismatch("$key does not match gridSize"))
+        write_component_data(g, component, ComplexF64.(val);
+                             unit=pg_units(COMPONENT_ALIAS[component]), reverse_axes)
     end
 end
 
@@ -153,19 +177,20 @@ function particle_data_dict(pg::AbstractParticleGroup)
         "n_particle" => length(pg),
         "charge" => charge(pg),
         "id" => pg.id,
+        (string(k) => pg.extra[k] for k in OPTIONAL_PARTICLE_COLUMNS if haskey(pg.extra, k))...,
     )
 end
 
 """
-    write_particle_group(filename::String, pg::AbstractParticleGroup)
+    write_particle_group(filename::AbstractString, pg::AbstractParticleGroup; t_offset=0.0)
 
 Write a ParticleGroup or ParticleGroupView to an HDF5 file in openPMD format.
 This is the inverse of `ParticleGroup(filename::AbstractString)`.
 """
-function write_particle_group(filename::String, pg::AbstractParticleGroup)
+function write_particle_group(filename::AbstractString, pg::AbstractParticleGroup; t_offset=0.0)
     h5open(filename, "w") do h5
         pmd_init(h5)
         g = create_group(h5, "data/1")
-        write_pmd_bunch(g, particle_data_dict(pg))
+        write_pmd_bunch(g, particle_data_dict(pg); t_offset)
     end
 end

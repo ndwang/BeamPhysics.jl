@@ -65,7 +65,16 @@ const EXPECTED_RECORD_UNIT_DIMENSION = Dict{String, NTuple{7, Float64}}(
 const COMPONENT_FROM_ALIAS = Dict{String, String}(
     "t" => "time",
     "weight" => "weight",
-    "status" => "particleStatus"
+    "status" => "particleStatus",
+    "s" => "sPosition",
+    "ix_branch" => "branchIndex",
+    "ix_ele" => "elementIndex",
+    "location" => "locationInElement",
+    "p0c" => "totalMomentumOffset",
+    "spin_x" => "spin/x",
+    "spin_y" => "spin/y",
+    "spin_z" => "spin/z",
+    "charge_state" => "chargeState"
 )
 
 # Add position, momentum, field aliases
@@ -78,13 +87,16 @@ end
 
 # Inverse mapping
 const COMPONENT_ALIAS = Dict(v => k for (k, v) in COMPONENT_FROM_ALIAS)
+const OPTIONAL_PARTICLE_COLUMNS = (:s, :ix_branch, :ix_ele, :location, :p0c,
+                                   :spin_x, :spin_y, :spin_z, :charge_state)
+const REVERSED_FIELD_AXES = (("z", "y", "x"), ("z", "theta", "r"))
 
 """
     particle_paths(h5; key="particlesPath")
 
 Uses the basePath and particlesPath to find where openPMD particles should be.
 """
-function particle_paths(h5::HDF5.File; key="particlesPath")
+function particle_paths(h5::Union{HDF5.File,HDF5.Group}; key="particlesPath")
     basePath = String(attrs(h5)["basePath"])
     particlesPath = String(attrs(h5)[key])
 
@@ -98,7 +110,8 @@ function particle_paths(h5::HDF5.File; key="particlesPath")
     end
 
     path1, path2 = split(basePath, "%T")
-    tlist = keys(h5[path1])
+    prefix = strip(path1, '/')
+    tlist = isempty(prefix) ? keys(h5) : keys(h5[prefix])
     return [path1 * t * path2 * particlesPath for t in tlist]
 end
 
@@ -118,9 +131,9 @@ function field_paths(h5; key="externalFieldPath")
         return [fpath]
     end
 
-    path1 = split(fpath, "%T")[1]
+    path1, path2 = split(fpath, "%T")
     tlist = keys(h5[path1])
-    return [path1 * t for t in tlist]
+    return [path1 * t * path2 for t in tlist]
 end
 
 """
@@ -138,7 +151,7 @@ end
 Get value from constant component.
 """
 function constant_component_value(h5)
-    unitSI = attrs(h5)["unitSI"]
+    unitSI = _to_scalar(Float64, attrs(h5)["unitSI"])
     val = attrs(h5)["value"]
     return unitSI == 1.0 ? val : val * unitSI
 end
@@ -159,59 +172,39 @@ Parameters:
   * ("r", "theta", "z")
 """
 function component_data(h5; slice=:, unit_factor=1, axis_labels=nothing)
-    # Look for unitSI factor (may be scalar or 1-element array in field files)
-    factor = haskey(attrs(h5), "unitSI") ? attrs(h5)["unitSI"] : 1
-    if factor isa AbstractArray
-        factor = factor[1]
-    end
-
-    # Additional conversion factor
-    if unit_factor != 1
-        factor *= unit_factor
-    end
-
+    factor = _to_scalar(Float64, get(attrs(h5), "unitSI", 1)) * unit_factor
     if is_constant_component(h5)
-        dat = fill(attrs(h5)["value"], Tuple(attrs(h5)["shape"]))
-    # Check multidimensional for data ordering, convert to 'x', 'y', 'z' order
-    elseif ndims(h5) > 1
-        if isnothing(axis_labels)
-            throw(ArgumentError("axis_labels required for multidimensional arrays"))
-        end
-
-        dat = read(h5)
-
-        # Define the standard order for each coordinate system
-        cartesian_std = ("x", "y", "z")
-        cylindrical_std = ("r", "theta", "z")
-
-        # Get the permutation indices to convert from current order to standard order
-        if all(label in cartesian_std for label in axis_labels)
-            perm_indices = [findfirst(isequal(label), cartesian_std) for label in axis_labels]
-            if perm_indices != [1, 2, 3]
-                dat = permutedims(dat, perm_indices)
-            end
-        elseif all(label in cylindrical_std for label in axis_labels)
-            perm_indices = [findfirst(isequal(label), cylindrical_std) for label in axis_labels]
-            if perm_indices != [1, 2, 3]
-                dat = permutedims(dat, perm_indices)
-            end
-        end
+        dims = Tuple(Int.(attrs(h5)["shape"]))
+        indices = slice isa Tuple ? slice : (slice,)
+        indices = (indices..., ntuple(_ -> Colon(), length(dims) - length(indices))...)
+        checkbounds(CartesianIndices(dims), indices...)
+        shape = Tuple(i isa Colon ? dims[k] : length(i)
+                      for (k, i) in enumerate(indices) if !(i isa Integer))
+        value = attrs(h5)["value"]
+        dat = isempty(shape) ? value : fill(value, shape)
+    elseif ndims(h5) == 1
+        dat = slice isa Colon ? read(h5) : h5[slice]
     else
-        # 1-D array
-        dat = read(h5)[slice]
-    end
-
-    if factor != 1
-        # Convert factor to the same type as the data to preserve precision
-        if isa(dat, AbstractArray)
-            factor_converted = convert(eltype(dat), factor)
-            dat .*= factor_converted
+        isnothing(axis_labels) && throw(ArgumentError("axis_labels required for multidimensional arrays"))
+        # HDF5.jl exposes the file axes in reverse. A reversed openPMD field
+        # layout cancels that reversal; all other layouts need one transpose.
+        legacy_f = get(attrs(h5), "gridDataOrder", "") == "F"
+        reverse_axes = !(legacy_f || Tuple(axis_labels) in REVERSED_FIELD_AXES)
+        if slice isa Colon
+            dat = read(h5)
         else
-            dat *= factor
+            indices = slice isa Tuple ? slice : (slice,)
+            indices = (indices..., ntuple(_ -> Colon(), ndims(h5) - length(indices))...)
+            dat = h5[(reverse_axes ? reverse(indices) : indices)...]
+        end
+        if reverse_axes && dat isa AbstractArray && ndims(dat) > 1
+            dat = permutedims(dat, Tuple(ndims(dat):-1:1))
         end
     end
 
-    return dat
+    factor == 1 && return dat
+    T = eltype(dat)
+    return dat .* (T <: Union{AbstractFloat,Complex} ? convert(T, factor) : factor)
 end
 
 """
@@ -235,8 +228,8 @@ end
     particle_array(h5, component; slice=:, include_offset=true)
 
 Main routine to return particle arrays in fixed units.
-All units are SI except momentum, which will be in eV/c.
-The original data type from the HDF5 file is preserved.
+Momentum is returned in eV/c and spin in units of hbar. Other units are SI.
+Floating-point precision is preserved when converting units.
 """
 function particle_array(h5, component; slice=:, include_offset=true)
     # Handle aliases
@@ -244,8 +237,11 @@ function particle_array(h5, component; slice=:, include_offset=true)
         component = COMPONENT_FROM_ALIAS[component]
     end
 
-    if component in ["momentum/x", "momentum/y", "momentum/z"]
+    if component in ("momentum/x", "momentum/y", "momentum/z", "totalMomentum", "totalMomentumOffset")
         unit_factor = C_LIGHT * EV_PER_J  # convert J/(m/s) to eV/c
+    elseif startswith(component, "spin/") &&
+           Tuple(get(attrs(h5[component]), "unitDimension", DIMENSION["1"])) == (2, 1, -1, 0, 0, 0, 0)
+        unit_factor = inv(H_BAR * J_PER_EV)
     else
         unit_factor = 1
     end
@@ -257,7 +253,7 @@ function particle_array(h5, component; slice=:, include_offset=true)
     ocomponent = offset_component_name(component)
     if include_offset && haskey(h5, ocomponent)
         offset = component_data(h5[ocomponent], slice=slice, unit_factor=unit_factor)
-        dat .+= offset
+        dat = dat .+ offset
     end
 
     return dat
