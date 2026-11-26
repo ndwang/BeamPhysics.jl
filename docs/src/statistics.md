@@ -3,7 +3,7 @@
 ## Weighted group statistics
 
 ```julia
-using Statistics
+using BeamPhysics
 
 mean(pg, :x)                       # weighted mean position
 std(pg, gamma)                     # weighted population standard deviation of gamma

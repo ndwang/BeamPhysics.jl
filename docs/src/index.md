@@ -21,7 +21,7 @@ Pkg.add("BeamPhysics")
 ## Quick Start
 
 ```julia
-using BeamPhysics, Statistics
+using BeamPhysics
 
 # Load particles from an openPMD HDF5 file
 pg = ParticleGroup("particles.h5")

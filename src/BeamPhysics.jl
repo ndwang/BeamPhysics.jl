@@ -42,7 +42,7 @@ export set_charge!, average_current
 export norm_emit_calc, twiss_calc, twiss_dispersion, twiss
 export A_mat_calc, A_inverse_mat_calc, amplitude_calc
 export particle_amplitude, normalized_particle_coordinate
-export covariance_matrix, delta, ptp
+export mean, std, cov, covariance_matrix, delta, ptp
 
 # Coordinates & operations
 export in_z_coordinates, in_t_coordinates

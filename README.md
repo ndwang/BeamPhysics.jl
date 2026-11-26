@@ -14,7 +14,7 @@ Pkg.add("BeamPhysics")
 ## Quick Start
 
 ```julia
-using BeamPhysics, Statistics
+using BeamPhysics
 
 pg = ParticleGroup("particles.h5")
 std(pg, :x)       # weighted std of x [m]
