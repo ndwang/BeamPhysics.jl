@@ -167,15 +167,7 @@ function Base.show(io::IO, pg::ParticleGroup)
     print(io, "ParticleGroup with $(length(pg)) particles (charge = $(charge(pg)) C)")
 end
 
-function Base.show(io::IO, ::MIME"text/plain", pg::ParticleGroup)
-    print(io, "ParticleGroup with $(length(pg)) particles (charge = $(charge(pg)) C)")
-end
-
 function Base.show(io::IO, pg::ParticleGroupView)
-    print(io, "ParticleGroupView with $(length(pg)) particles (charge = $(charge(pg)) C)")
-end
-
-function Base.show(io::IO, ::MIME"text/plain", pg::ParticleGroupView)
     print(io, "ParticleGroupView with $(length(pg)) particles (charge = $(charge(pg)) C)")
 end
 
