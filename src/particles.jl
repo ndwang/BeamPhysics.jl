@@ -240,16 +240,10 @@ end
 
 # ---- Drift methods ----
 
-function drift!(pg::AbstractParticleGroup, delta_t::Number)
-    E = energy(pg)
-    pg.x .+= (pg.px ./ E) .* C_LIGHT .* delta_t
-    pg.y .+= (pg.py ./ E) .* C_LIGHT .* delta_t
-    pg.z .+= (pg.pz ./ E) .* C_LIGHT .* delta_t
-    pg.t .+= delta_t
-end
-
-function drift!(pg::AbstractParticleGroup, delta_t::AbstractVector)
-    length(delta_t) == length(pg.x) || throw(ArgumentError("delta_t length must match number of particles"))
+function drift!(pg::AbstractParticleGroup, delta_t::Union{Number,AbstractVector})
+    if delta_t isa AbstractVector && length(delta_t) != length(pg)
+        throw(ArgumentError("delta_t length must match number of particles"))
+    end
     E = energy(pg)
     pg.x .+= (pg.px ./ E) .* C_LIGHT .* delta_t
     pg.y .+= (pg.py ./ E) .* C_LIGHT .* delta_t

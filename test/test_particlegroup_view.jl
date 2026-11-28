@@ -1,8 +1,10 @@
+using AtomicAndPhysicalConstants: C_LIGHT
+
 @testset "ParticleGroupView basic behavior" begin
     # Construct a small ParticleGroup with three particles
     pg1 = single_particle(x = 0.0)
-    pg2 = single_particle(x = 1.0)
-    pg3 = single_particle(x = 2.0)
+    pg2 = single_particle(x = 1.0, px = 1e5, py = 2e5, pz = 1e6)
+    pg3 = single_particle(x = 2.0, px = -2e5, py = 1e5, pz = 2e6)
     pg = pg1 + pg2 + pg3
 
     @test length(pg) == 3
@@ -25,11 +27,18 @@
     @test all(energy(pgv) .== energy(pg)[view_inds])
 
     # Drift only the viewed subset and ensure other particles are unchanged
-    x_before = copy(pg.x)
-    drift!(pgv, 1e-12)
-    x_after = pg.x
+    for dt in (1e-12, [1e-12, 2e-12])
+        before = copy(pgv)
+        drift!(pgv, dt)
+        @test pgv.x .- before.x ≈ beta_x(before) .* C_LIGHT .* dt
+        @test pgv.y .- before.y ≈ beta_y(before) .* C_LIGHT .* dt
+        @test pgv.z .- before.z ≈ beta_z(before) .* C_LIGHT .* dt
+        @test pgv.t ≈ before.t .+ dt
+        @test pg[1] == pg1
+    end
 
-    other_inds = setdiff(1:length(pg), collect(view_inds))
-    @test all(x_after[other_inds] .== x_before[other_inds])
+    before = copy(pg)
+    @test_throws ArgumentError drift!(pgv, [1e-12])
+    @test pg == before
 end
 
