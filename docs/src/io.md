@@ -51,11 +51,20 @@ such as a user-defined `pg.extra[:diagnostic]`, are in-memory only.
 ## Reading Field Meshes
 
 ```julia
-fm = FieldMesh("fieldmesh.h5")
+using BeamPhysics
 
-# Inspect available paths
-h5open("fieldmesh.h5", "r") do h5
-    println(field_paths(h5))
+fm = FieldMesh("fieldmesh.h5")  # file with one field map
+```
+
+For a file with multiple field maps, list their paths and load the group you
+want. For example, if the list includes `"/ExternalFieldMesh/1/"`:
+
+```julia
+using HDF5
+
+paths = h5open(field_paths, "fieldmesh.h5", "r")
+fm = h5open("fieldmesh.h5", "r") do h5
+    FieldMesh(h5["/ExternalFieldMesh/1/"])
 end
 ```
 
