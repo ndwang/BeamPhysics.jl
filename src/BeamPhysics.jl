@@ -23,9 +23,9 @@ export ParticleGroup, ParticleGroupView, single_particle
 export FieldMesh, write_fieldmesh
 export interpolator, interpolate
 export axis_index, mins, maxs, deltas, coord_vec, coord_vecs
-export scale, phase, factor, frequency
+export frequency, field_magnitude
 export is_static, is_pure_electric, is_pure_magnetic
-export scaled_component, set_min!, set_max!
+export set_min!, set_max!
 export dx, dy, dz, dr, dtheta
 export xmin, xmax, ymin, ymax, zmin, zmax, rmin, rmax, thetamin, thetamax
 

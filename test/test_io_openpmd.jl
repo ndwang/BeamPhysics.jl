@@ -51,9 +51,10 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         fixture(name) = joinpath(@__DIR__, "fixtures", name)
         fm = FieldMesh(fixture("openpmd_python_rf.h5"))
         ex = [100i + 10j + k + im*(1+i-2k) for i in 0:1, j in 0:2, k in 0:3]
-        @test fm.components["electricField/x"] == ex
-        @test fm["Ex"] ≈ ex .* (-2im)
-        @test fm.components["magneticField/z"] == fill(3 + 2im, size(ex))
+        @test fm.Ex ≈ ex .* (-2im)
+        @test fm.Bz ≈ fill((3 + 2im) * (-2im), size(ex))
+        @test fm.metadata["fieldScale"] == 2
+        @test fm.metadata["RFphase"] == 0.25
         @test fm.metadata["gridLowerBound"] == [-1, 2, 3]
         @test fm.metadata["customParameter"] == 42
         h5open(fixture("openpmd_python_rf.h5")) do h5
@@ -89,9 +90,13 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
             end
 
             file = joinpath(dir, "field.h5")
+            fm.Ex[2, 1, 1] = 8 - 6im
+            ex[2, 1, 1] = 3 + 4im   # stored value before multiplication by -2im
             write_fieldmesh(file, fm)
             h5open(file) do h5
                 g = h5[only(field_paths(h5))]
+                @test attrs(g)["fieldScale"] == 2
+                @test attrs(g)["RFphase"] == 0.25
                 @test read(g["electricField/x"]) == permutedims(ex, (3, 2, 1))
                 @test attrs(g["magneticField/z"])["shape"] == collect(size(ex))
             end
@@ -99,6 +104,25 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         end
     end
 
+
+    @testset "editing a field loaded with zero scale" begin
+        mktempdir() do dir
+            file = joinpath(dir, "zero-scale.h5")
+            cp(joinpath(@__DIR__, "fixtures", "openpmd_python_rf.h5"), file)
+            h5open(file, "r+") do h5
+                g = h5[only(field_paths(h5))]
+                HDF5.delete_attribute(g, "fieldScale")
+                attrs(g)["fieldScale"] = 0.0
+            end
+            fm = FieldMesh(file)
+            @test all(iszero, fm.Ex)
+            fm.Ex[1, 1, 1] = 1 + 2im
+            write_fieldmesh(file, fm)
+            restored = FieldMesh(file)
+            @test restored.Ex ≈ fm.Ex
+            @test restored.metadata["fieldScale"] == 1.0
+        end
+    end
 
     # ── pmd_init / pmd_field_init ──────────────────────────────────────────
 

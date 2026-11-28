@@ -430,7 +430,7 @@ function fieldmesh_plot(fm::FieldMesh;
     kwargs...
 )
     transform in (real, imag, abs) || throw(ArgumentError("transform must be real, imag, or abs"))
-    values = fm[String(component)]
+    values = component in (:E, :B) ? field_magnitude(fm, component) : BeamPhysics._field_component(fm, component)
 
     if fm.geometry == "cylindrical"
         return _fieldmesh_plot_cylindrical(fm, component, values, transform; mirror, cmap, kwargs...)
@@ -444,8 +444,8 @@ end
 function _fieldmesh_plot_cylindrical(fm::FieldMesh, component, values, transform;
     mirror::Bool = false, cmap = :plasma, kwargs...)
 
-    r = coord_vec(fm, "r")
-    z = coord_vec(fm, "z")
+    r = coord_vec(fm, :r)
+    z = coord_vec(fm, :z)
 
     dat = transform.(@view values[:, 1, :])
 
@@ -475,7 +475,7 @@ function _fieldmesh_plot_rectangular(fm::FieldMesh, component, values, transform
     # Pop slice coordinate from kwargs; default to y=0
     kw = Dict(kwargs)
     slice_axis, slice_val = :y, 0.0
-    for ax in Symbol.(fm.axis_labels)
+    for ax in fm.axis_labels
         if haskey(kw, ax)
             slice_axis = ax
             slice_val = Float64(pop!(kw, ax))
@@ -529,12 +529,12 @@ function fieldmesh_plot_onaxis(fm::FieldMesh; kwargs...)
     components = cylindrical ? (:Ez, :Bz) : (:Ex, :Ey, :Ez, :Bx, :By, :Bz)
     # The cylindrical axis uses r=0 at the map's first theta sample.
     second_coord = cylindrical ? fm.grid_origin[2] : 0.0
-    z = coord_vec(fm, "z")
+    z = coord_vec(fm, :z)
     p = plot(; xlabel="\$z\$ (m)", kwargs...)
     plotted_electric = false
     for component in components
-        haskey(fm.components, BeamPhysics.FIELD_RECORD_FROM_COMPONENT[component]) || continue
-        field = BeamPhysics.interpolator(fm, String(component))
+        haskey(fm.components, component) || continue
+        field = BeamPhysics.interpolator(fm, component)
         values = [field(0, second_coord, zi) for zi in z]
         all(iszero, values) && continue
         if cylindrical

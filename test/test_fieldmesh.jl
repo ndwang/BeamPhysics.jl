@@ -8,9 +8,9 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
 
     @testset "Linear interpolation" begin
         fm = FieldMesh(FIELDMESH_FILE)
-        itp = interpolator(fm, "Bz")
+        itp = interpolator(fm, :Bz)
         r, theta, z = coord_vecs(fm)
-        bz = fm["Bz"]
+        bz = fm.Bz
         @test itp(0, theta[1], z[end]) ≈ bz[1, 1, end]
         @test itp((r[2] + r[3]) / 2, theta[1], (z[200] + z[201]) / 2) ≈
             sum(bz[2:3, 1, 200:201]) / 4
@@ -19,33 +19,34 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
 
         ex = [x + 2y + 3z + im * (x - z)
               for x in (0, 1), y in (0, 2, 4), z in (-2, 0, 2, 4)]
-        rf = FieldMesh("rectangular", ("x", "y", "z"), (0.0, 0.0, -2.0),
-                       (1.0, 2.0, 2.0), size(ex), "center", 1, 1.3e9, 0.25, 2.0,
-                       Dict("electricField/x" => ex))
-        @test interpolator(rf, rf["Ex"])(0.25, 3, 1.5) == interpolator(rf, "Ex")(0.25, 3, 1.5)
+        rf = FieldMesh(; geometry="rectangular", grid_origin=(0.0, 0.0, -2.0),
+                       grid_spacing=(1.0, 2.0, 2.0), grid_size=size(ex), ele_anchor_pt="center",
+                       harmonic=1, fundamental_frequency=1.3e9, components=Dict(:Ex => -2im .* ex))
+        @test interpolator(rf, rf.Ex)(0.25, 3, 1.5) == interpolator(rf, :Ex)(0.25, 3, 1.5)
         @test_throws DimensionMismatch interpolator(rf, zeros(2, 2, 2))
-        @test interpolate(rf, "Ex", (0.25, 3, 1.5)) ≈ -2.5 - 21.5im
-        @test interpolate(rf, abs.(rf["Ex"]), (0.25, 0, -2)) ≈
-            0.75 * abs(rf["Ex"][1, 1, 1]) + 0.25 * abs(rf["Ex"][2, 1, 1])
+        @test_throws ArgumentError interpolator(rf, :grid_size)
+        @test interpolate(rf, :Ex, (0.25, 3, 1.5)) ≈ -2.5 - 21.5im
+        @test interpolate(rf, abs.(rf.Ex), (0.25, 0, -2)) ≈
+            0.75 * abs(rf.Ex[1, 1, 1]) + 0.25 * abs(rf.Ex[2, 1, 1])
     end
 
     @testset "Construction from HDF5 file" begin
         fm = FieldMesh(FIELDMESH_FILE)
         @test fm isa FieldMesh
         @test fm.geometry == "cylindrical"
-        @test fm.axis_labels == ("r", "theta", "z")
+        @test fm.axis_labels == (:r, :theta, :z)
         @test fm.grid_size == (31, 1, 481)
         @test fm.ele_anchor_pt == "center"
         @test fm.harmonic == 0
-        @test fm.field_scale == 0.06
+        @test fm.Bz[1, 1, 241] ≈ 0.06
     end
 
     @testset "Rectangular slice plots" begin
         x, y, z = 0:2, -1:2, 0:1
         bz = [xi + 10zi for xi in x, yi in y, zi in z]
-        fm = FieldMesh("rectangular", ("x", "y", "z"), (0.0, -1.0, 0.0),
-                       (1.0, 1.0, 1.0), size(bz), "center", 0, 0.0, 0.0, 1.0,
-                       Dict("magneticField/z" => bz))
+        fm = FieldMesh(; geometry="rectangular", grid_origin=(0.0, -1.0, 0.0),
+                       grid_spacing=(1.0, 1.0, 1.0), grid_size=size(bz), ele_anchor_pt="center",
+                       harmonic=0, fundamental_frequency=0.0, components=Dict(:Bz => bz))
 
         xy = fieldmesh_plot(fm; component=:Bz, z=0.4)
         @test xy.series_list[1][:z].surf ≈ [xi + 4 for yi in y, xi in x]
@@ -58,7 +59,7 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         rf = FieldMesh(joinpath(@__DIR__, "fixtures", "openpmd_python_rf.h5"))
         @test mins(rf) == map(first, coord_vecs(rf))
         @test maxs(rf) == map(last, coord_vecs(rf))
-        @test interpolate(rf, "Ex", maxs(rf)) ≈ rf["Ex"][end, end, end]
+        @test interpolate(rf, :Ex, maxs(rf)) ≈ rf.Ex[end, end, end]
 
         fm = FieldMesh(FIELDMESH_FILE)
 
@@ -72,18 +73,18 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         @test mx[3] ≈ 0.24
 
         # axis_index
-        @test axis_index(fm, "r") == 1
-        @test axis_index(fm, "theta") == 2
-        @test axis_index(fm, "z") == 3
-        @test_throws ArgumentError axis_index(fm, "x")
+        @test axis_index(fm, :r) == 1
+        @test axis_index(fm, :theta) == 2
+        @test axis_index(fm, :z) == 3
+        @test_throws ArgumentError axis_index(fm, :x)
 
         # coord_vec
-        r = coord_vec(fm, "r")
+        r = coord_vec(fm, :r)
         @test length(r) == 31
         @test r[1] ≈ 0.0
         @test r[end] ≈ 0.03
 
-        z = coord_vec(fm, "z")
+        z = coord_vec(fm, :z)
         @test length(z) == 481
         @test z[1] ≈ -0.24
         @test z[end] ≈ 0.24
@@ -103,71 +104,46 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         @test zmax(fm) ≈ 0.24
     end
 
-    @testset "Field scaling" begin
-        fm = FieldMesh(FIELDMESH_FILE)
-
-        @test scale(fm) == 0.06
-        @test phase(fm) == 0.0
-        @test factor(fm) == 0.06
-        @test is_static(fm)
-        @test frequency(fm) == 0.0
-    end
-
     @testset "Boolean queries" begin
         fm = FieldMesh(FIELDMESH_FILE)
 
         @test is_static(fm)
+        @test frequency(fm) == 0.0
         @test is_pure_magnetic(fm)
         @test !is_pure_electric(fm)
     end
 
-    @testset "Component access" begin
+    @testset "Native physical components" begin
         fm = FieldMesh(FIELDMESH_FILE)
+        @test hasproperty(fm, :Br) && hasproperty(fm, :Ez)
+        @test !hasproperty(fm, :Bx)
+        @test_throws ArgumentError fm.Bx
+        @test_throws ArgumentError fm.weight
+        @test size(fm.Bz) == fm.grid_size
+        @test fm.Bz === fm.components[:Bz]
+        @test fm.Bz[1, 1, 241] ≈ 0.06
+        @test field_magnitude(fm, :B) ≈ sqrt.(abs2.(fm.Br) .+ abs2.(fm.Btheta) .+ abs2.(fm.Bz))
+        @test all(iszero, field_magnitude(fm, :E))
+        @test !haskey(fm.components, :Ez)
+        untouched = copy(fm)
+        @test all(iszero, fm.Ez)
+        @test fm == untouched
+        fm.Ez[1] = 9.0
+        @test fm.Ez[1] == 9.0
+        @test field_magnitude(fm, :E)[1] == 9.0
+        @test !is_pure_magnetic(fm)
+        @test_throws ArgumentError field_magnitude(fm, :Q)
 
-        # Raw components
-        @test haskey(fm.components, "magneticField/z")
-        @test haskey(fm.components, "magneticField/r")
-        @test size(fm.components["magneticField/z"]) == (31, 1, 481)
-
-        # Scaled component
-        bz = scaled_component(fm, "Bz")
-        @test size(bz) == (31, 1, 481)
-        @test bz ≈ fm.field_scale .* fm.components["magneticField/z"]
-
-        # Missing component returns zeros
-        ez = scaled_component(fm, "Ez")
-        @test all(iszero, ez)
-    end
-
-    @testset "getindex" begin
-        fm = FieldMesh(FIELDMESH_FILE)
-
-        # Coordinate access
-        z = fm["z"]
-        @test z[1] ≈ -0.24
-        @test length(z) == 481
-
-        # Scaled component
-        bz = fm["Bz"]
-        @test size(bz) == (31, 1, 481)
-        @test bz ≈ fm.field_scale .* fm.components["magneticField/z"]
-
-        raw = fm.components["magneticField/z"]
-        @test_deprecated r"unscaled field" begin
-            stored = fm["magneticField/z"]
-            @test stored === raw
-        end
-        @test raw[1, 1, 241] ≈ 1.0       # r=0, z=0
-        @test bz[1, 1, 241] ≈ 0.06
-        @test scaled_component(fm, "magneticField/z") ≈ bz
-
-        # Operator prefix
-        re_bz = fm["re_Bz"]
-        @test re_bz ≈ real.(bz)
-
-        # Field magnitude
-        b = fm["B"]
-        @test size(b) == (31, 1, 481)
+        grid = (; geometry="rectangular", grid_origin=(0, 0, 0), grid_spacing=(1, 1, 1),
+                  grid_size=(2, 2, 2), ele_anchor_pt="center", harmonic=1, fundamental_frequency=10.0)
+        mesh = FieldMesh(; grid..., components=Dict(:Ex => fill(4im, grid.grid_size)))
+        @test is_pure_electric(mesh)
+        @test frequency(mesh) == 10.0
+        @test all(==(4), field_magnitude(mesh, :E))
+        mesh.By[1] = im
+        @test mesh.By[1] == im
+        @test_throws DimensionMismatch FieldMesh(; grid..., components=Dict(:Ex => zeros(1, 1, 1)))
+        @test_throws ArgumentError FieldMesh(; grid..., components=Dict(:Er => zeros(2, 2, 2)))
     end
 
     @testset "Setters" begin
@@ -175,20 +151,15 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         orig_zmin = zmin(fm)
 
         # Shift z origin
-        set_min!(fm, "z", -0.5)
+        set_min!(fm, :z, -0.5)
         @test zmin(fm) == -0.5
         @test zmax(fm) ≈ -0.5 + 0.001 * 480
 
         # Shift z max
         fm2 = FieldMesh(FIELDMESH_FILE)
-        set_max!(fm2, "z", 1.0)
+        set_max!(fm2, :z, 1.0)
         @test zmax(fm2) ≈ 1.0
 
-        # Direct field mutation
-        fm3 = FieldMesh(FIELDMESH_FILE)
-        fm3.field_scale = 2.0
-        @test scale(fm3) == 2.0
-        @test factor(fm3) == 2.0
     end
 
     @testset "show and copy" begin
@@ -199,8 +170,8 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
 
         fm2 = copy(fm)
         @test fm == fm2
-        fm2.field_scale = 99.0
-        @test fm.field_scale != fm2.field_scale
+        fm2.Bz[1] = 99.0
+        @test fm.Bz[1] != fm2.Bz[1]
     end
 
     @testset "HDF5 round-trip" begin
@@ -217,11 +188,15 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
             @test fm2.grid_size == fm.grid_size
             @test fm2.ele_anchor_pt == fm.ele_anchor_pt
             @test fm2.harmonic == fm.harmonic
-            @test fm2.field_scale == fm.field_scale
+            @test fm2.metadata == fm.metadata
             @test keys(fm2.components) == keys(fm.components)
             for k in keys(fm.components)
                 @test fm2.components[k] ≈ fm.components[k]
             end
+            # Detect an invalid replacement before opening the existing file for writing.
+            fm.components[:Bz] = zeros(1, 1, 1)
+            @test_throws DimensionMismatch write_fieldmesh(tmpfile, fm)
+            @test FieldMesh(tmpfile) == fm2
         finally
             isfile(tmpfile) && rm(tmpfile)
         end
@@ -231,9 +206,9 @@ end
 @testset "On-axis profiles and RF quadratures" begin
     x, y, z = (-1, 1), (-1, 1), 0:2
     field = [10 + 3xi + 2yi + zi for xi in x, yi in y, zi in z]
-    fm = FieldMesh("rectangular", ("x", "y", "z"), (-1., -1., 0.), (2., 2., 1.),
-                   size(field), "center", 1, 1e9, 0., 1.,
-                   Dict("electricField/x" => im .* field, "magneticField/z" => (1+2im) .* field))
+    fm = FieldMesh(; geometry="rectangular", grid_origin=(-1., -1., 0.), grid_spacing=(2., 2., 1.),
+                   grid_size=size(field), ele_anchor_pt="center", harmonic=1, fundamental_frequency=1e9,
+                   components=Dict(:Ex => im .* field, :Bz => (1+2im) .* field))
     profile = fieldmesh_plot_onaxis(fm)
     @test length(profile.series_list) == 3
     ex_im, bz_re, bz_im = profile.series_list
@@ -249,14 +224,15 @@ end
     end
 
     # Opposite phases at neighboring samples have the same magnitude.
-    fm["Ex"][1, :, :] .= -im
-    fm["Ex"][2, :, :] .= im
+    fm.Ex[1, :, :] .= -im
+    fm.Ex[2, :, :] .= im
     magnitude = fieldmesh_plot(fm; component=:Ex, transform=abs, x=0)
     @test magnitude.series_list[1][:z].surf == ones(length(y), length(z))
 
-    cylindrical = FieldMesh("cylindrical", ("r", "theta", "z"), (0., 0., 0.), (1., 0., 1.),
-                            (2, 1, 3), "center", 1, 1e9, 0., 1.,
-                            Dict("electricField/z" => [im*(1+r+zi) for r in 0:1, t in 1:1, zi in z]))
+    cylindrical = FieldMesh(; geometry="cylindrical", grid_origin=(0., 0., 0.), grid_spacing=(1., 0., 1.),
+                            grid_size=(2, 1, 3), ele_anchor_pt="center", harmonic=1, fundamental_frequency=1e9,
+                            components=Dict(:Ez => [im*(1+r+zi) for r in 0:1, t in 1:1, zi in z]))
+    cylindrical.Bz  # accessing an omitted zero field should not add a trace
     cyl_series = only(fieldmesh_plot_onaxis(cylindrical).series_list)
     @test cyl_series[:y] ≈ 1 .+ z
     @test startswith(cyl_series[:label], "Im ")
@@ -265,7 +241,7 @@ end
     @test fieldmesh_plot(cylindrical).series_list[1][:z].surf ≈
           [1+r+zi for r in 0:1, zi in z]
 
-    cylindrical.components["magneticField/r"] = [im*r*(1+zi) for r in 0:1, t in 1:1, zi in z]
+    cylindrical.Br[2, 1, :] .= im .* (1 .+ z)
     radial = fieldmesh_plot(cylindrical; component=:Br, transform=imag, mirror=true)
     @test radial.series_list[1][:z].surf[1, :] ≈ -(1 .+ z)
     radial_abs = fieldmesh_plot(cylindrical; component=:Br, transform=abs, mirror=true)

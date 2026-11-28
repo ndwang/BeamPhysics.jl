@@ -1,64 +1,85 @@
-"""
-FieldMesh: openPMD-beamphysics External Field Mesh data structure.
-
-Represents gridded electromagnetic field data in rectangular or cylindrical geometry,
-following the openPMD-beamphysics standard.
-"""
-
 # ── Geometry helpers ──────────────────────────────────────────────────────
 
-const AXIS_LABELS_FROM_GEOMETRY = Dict{String, NTuple{3, String}}(
-    "rectangular" => ("x", "y", "z"),
-    "cylindrical" => ("r", "theta", "z"),
+const AXIS_LABELS_FROM_GEOMETRY = Dict(
+    "rectangular" => (:x, :y, :z),
+    "cylindrical" => (:r, :theta, :z),
 )
 
-# ── FieldMesh struct ──────────────────────────────────────────────────────
+function _native_components(geometry)
+    geometry == "rectangular" && return (:Ex, :Ey, :Ez, :Bx, :By, :Bz)
+    geometry == "cylindrical" && return (:Er, :Etheta, :Ez, :Br, :Btheta, :Bz)
+    throw(ArgumentError("Unknown field geometry: $geometry"))
+end
 
 """
-    FieldMesh
+    FieldMesh(filename::AbstractString)
+    FieldMesh(group::HDF5.Group)
+    FieldMesh(; geometry, grid_origin, grid_spacing, grid_size, components,
+              ele_anchor_pt, harmonic, fundamental_frequency, metadata=Dict{String,Any}())
 
-Gridded electromagnetic field data in openPMD-beamphysics format.
+A rectangular (`x, y, z`) or cylindrical (`r, theta, z`) grid of physical
+electric (V/m) and magnetic (T) field samples. The grid origin, spacing,
+and size follow the native axis order. Spatial coordinates are in metres and
+the azimuth is in radians. The harmonic and fundamental frequency (Hz) define
+the operating frequency.
 
-# Fields
-- `geometry`: `"rectangular"` or `"cylindrical"`
-- `axis_labels`: e.g. `("r", "theta", "z")`
-- `grid_origin`: physical coordinate of grid origin
-- `grid_spacing`: spacing per axis
-- `grid_size`: number of grid points per axis
-- `ele_anchor_pt`: element anchor point (`"beginning"`, `"center"`, `"end"`)
-- `harmonic`: 0 for static, >0 for RF
-- `fundamental_frequency`: in Hz
-- `rf_phase`: RF phase in units of 2π (openPMD `RFphase`)
-- `field_scale`: overall field scale factor
-- `components`: Dict mapping openPMD names (e.g. `"magneticField/z"`) to 3D arrays
-- metadata: other openPMD field attributes preserved on write
+Access native components as properties, for example `fm.Bz` or `fm.Etheta`.
+The three-dimensional arrays are mutable. An omitted native component starts
+at zero and is allocated when accessed. For construction from arrays, pass
+a dictionary such as `Dict(:Bz => bz)` holding physical samples. HDF5 loading
+applies the file's field scale and RF phase once.
 
-# Constructors
-- `FieldMesh(filename::AbstractString)` — from HDF5 file
-- `FieldMesh(h5::HDF5.Group)` — from open HDF5 group
-
-# Examples
 ```julia
 fm = FieldMesh("solenoid.h5")
-fm.geometry        # "cylindrical"
-fm["Bz"]           # scaled Bz component
-coord_vec(fm, "z") # z coordinate vector
+fm.Bz               # physical longitudinal magnetic field [T]
+coord_vec(fm, :z)   # grid coordinates [m]
 ```
 """
 mutable struct FieldMesh
-    geometry::String
-    axis_labels::NTuple{3, String}
+    const geometry::String
+    const axis_labels::NTuple{3, Symbol}
     grid_origin::NTuple{3, Float64}
     grid_spacing::NTuple{3, Float64}
-    grid_size::NTuple{3, Int}
+    const grid_size::NTuple{3, Int}
     ele_anchor_pt::String
     harmonic::Int
     fundamental_frequency::Float64
-    rf_phase::Float64
-    field_scale::Float64
-    components::Dict{String, Array{<:Number, 3}}
-    metadata::Dict{String, Any}
+    const components::Dict{Symbol, Array{<:Number, 3}}
+    const metadata::Dict{String, Any}
+
+    function FieldMesh(; geometry, grid_origin, grid_spacing, grid_size, components,
+                       ele_anchor_pt, harmonic, fundamental_frequency, metadata=Dict{String,Any}())
+        _check_field_components(geometry, grid_size, components)
+        file_attrs = merge(Dict{String,Any}("gridLowerBound" => [0, 0, 0],
+                                            "fieldScale" => 1.0, "RFphase" => 0.0), metadata)
+        return new(geometry, AXIS_LABELS_FROM_GEOMETRY[geometry], grid_origin, grid_spacing,
+                   grid_size, ele_anchor_pt, harmonic, fundamental_frequency, components, file_attrs)
+    end
 end
+
+function _check_field_components(geometry, grid_size, components)
+    native = _native_components(geometry)
+    for (name, data) in components
+        name in native || throw(ArgumentError("$name is not a native $geometry field component"))
+        size(data) == grid_size || throw(DimensionMismatch("$name has size $(size(data)); expected $grid_size"))
+    end
+end
+
+function _field_component(fm::FieldMesh, name::Symbol)
+    name in _native_components(fm.geometry) ||
+        throw(ArgumentError("$name is not a native $(fm.geometry) field component"))
+    return get!(fm.components, name) do
+        zeros(is_static(fm) ? Float64 : ComplexF64, fm.grid_size)
+    end
+end
+
+function Base.getproperty(fm::FieldMesh, name::Symbol)
+    hasfield(FieldMesh, name) && return getfield(fm, name)
+    return _field_component(fm, name)
+end
+
+Base.propertynames(fm::FieldMesh, private::Bool=false) =
+    (fieldnames(FieldMesh)..., _native_components(fm.geometry)...)
 
 # ── Constructors ──────────────────────────────────────────────────────────
 
@@ -76,6 +97,10 @@ function FieldMesh(filename::AbstractString)
     end
 end
 
+function _file_field_factor(scale, rf_phase)
+    return iszero(rf_phase) ? scale : scale * cispi(-2 * rf_phase)
+end
+
 """
     FieldMesh(h5::HDF5.Group)
 
@@ -86,56 +111,46 @@ function FieldMesh(h5::HDF5.Group)
 
     geometry = String(a["gridGeometry"])
     file_axes = NTuple{3, String}(String.(a["axisLabels"]))
-    axis_labels = AXIS_LABELS_FROM_GEOMETRY[geometry]
     grid_origin = NTuple{3, Float64}(a["gridOriginOffset"])
     grid_spacing = NTuple{3, Float64}(a["gridSpacing"])
     grid_size = NTuple{3, Int}(a["gridSize"])
     ele_anchor_pt = String(a["eleAnchorPt"])
     harmonic = Int(a["harmonic"])
     fundamental_frequency = Float64(a["fundamentalFrequency"])
-    rf_phase = Float64(a["RFphase"])
-    field_scale = Float64(a["fieldScale"])
+    file_factor = _file_field_factor(a["fieldScale"], a["RFphase"])
 
-    components = Dict{String, Array{<:Number, 3}}()
-    for key in values(FIELD_RECORD_FROM_COMPONENT)
-        haskey(h5, key) || continue
-        record = first(split(key, '/'))
-        node = h5[key]
-        cdat = component_data(node; axis_labels=file_axes)
+    components = Dict{Symbol, Array{<:Number, 3}}()
+    for (component, path) in FIELD_RECORD_FROM_COMPONENT
+        haskey(h5, path) || continue
+        node = h5[path]
+        record = first(split(path, '/'))
         dim = Tuple(attrs(node)["unitDimension"])
         dim == EXPECTED_RECORD_UNIT_DIMENSION[record] ||
-            throw(ArgumentError("$key has incompatible unitDimension $dim"))
-        size(cdat) == grid_size ||
-            throw(DimensionMismatch("$key has size $(size(cdat)); expected $grid_size"))
-        components[key] = iszero(harmonic) && !(eltype(cdat) <: Real) ? real.(cdat) : cdat
+            throw(ArgumentError("$path has incompatible unitDimension $dim"))
+        samples = component_data(node; axis_labels=file_axes)
+        if iszero(harmonic) && !(eltype(samples) <: Real)
+            samples = real.(samples)
+        end
+        components[component] = isone(file_factor) ? samples : file_factor .* samples
     end
 
-    for key in ("gridLowerBound", "name", "gridCurvatureRadius", "masterParameter")
+    for key in ("gridLowerBound", "name", "gridCurvatureRadius", "masterParameter", "fieldScale", "RFphase")
         if haskey(a, key)
             metadata[key] = a[key]
         end
     end
-    return FieldMesh(geometry, axis_labels, grid_origin, grid_spacing, grid_size,
-                     ele_anchor_pt, harmonic, fundamental_frequency, rf_phase,
-                     field_scale, components, metadata)
-end
-
-function FieldMesh(geometry, axis_labels, grid_origin, grid_spacing, grid_size,
-                   ele_anchor_pt, harmonic, fundamental_frequency, rf_phase,
-                   field_scale, components)
-    return FieldMesh(geometry, axis_labels, grid_origin, grid_spacing, grid_size,
-                     ele_anchor_pt, harmonic, fundamental_frequency, rf_phase,
-                     field_scale, components, Dict{String, Any}("gridLowerBound" => [0, 0, 0]))
+    return FieldMesh(; geometry, grid_origin, grid_spacing, grid_size, ele_anchor_pt,
+                     harmonic, fundamental_frequency, components, metadata)
 end
 
 # ── Grid accessors ────────────────────────────────────────────────────────
 
 """
-    axis_index(fm::FieldMesh, key::String) -> Int
+    axis_index(fm::FieldMesh, key::Symbol) -> Int
 
 Return the axis index (1-based) for a named axis label.
 """
-function axis_index(fm::FieldMesh, key::String)
+function axis_index(fm::FieldMesh, key::Symbol)
     for i in 1:3
         fm.axis_labels[i] == key && return i
     end
@@ -168,11 +183,11 @@ Grid maximum coordinates.
 maxs(fm::FieldMesh) = ntuple(i -> last(_axis_range(fm, i)), 3)
 
 """
-    coord_vec(fm::FieldMesh, label::String) -> Vector{Float64}
+    coord_vec(fm::FieldMesh, label::Symbol) -> Vector{Float64}
 
 Coordinate vector along the named axis.
 """
-function coord_vec(fm::FieldMesh, label::String)
+function coord_vec(fm::FieldMesh, label::Symbol)
     return collect(_axis_range(fm, axis_index(fm, label)))
 end
 
@@ -183,35 +198,26 @@ Coordinate vectors for all three axes.
 """
 coord_vecs(fm::FieldMesh) = Tuple(coord_vec(fm, l) for l in fm.axis_labels)
 
-# Per-axis delta accessors
-for name in ("x", "y", "z", "r", "theta")
-    fname = Symbol("d" * name)
-    @eval begin
-        """    $($fname)(fm::FieldMesh) — grid spacing in $($name)."""
-        $fname(fm::FieldMesh) = fm.grid_spacing[axis_index(fm, $name)]
-    end
-end
-
-# Per-axis min/max accessors
-for name in ("x", "y", "z", "r", "theta")
-    fname_min = Symbol(name * "min")
-    fname_max = Symbol(name * "max")
-    @eval begin
-        """    $($fname_min)(fm::FieldMesh) — grid minimum in $($name)."""
-        $fname_min(fm::FieldMesh) = mins(fm)[axis_index(fm, $name)]
-        """    $($fname_max)(fm::FieldMesh) — grid maximum in $($name)."""
-        $fname_max(fm::FieldMesh) = maxs(fm)[axis_index(fm, $name)]
+# Named shortcuts select from the same grid quantities as the general accessors.
+for axis in (:x, :y, :z, :r, :theta)
+    for (name, accessor, description) in (
+        (Symbol(:d, axis), :deltas, "spacing"),
+        (Symbol(axis, :min), :mins, "minimum"),
+        (Symbol(axis, :max), :maxs, "maximum"),
+    )
+        doc = "    $name(fm::FieldMesh)\n\nGrid $description along the $axis axis."
+        @eval @doc $doc $name(fm::FieldMesh) = $accessor(fm)[axis_index(fm, $(QuoteNode(axis)))]
     end
 end
 
 # ── Min/Max setters ───────────────────────────────────────────────────────
 
 """
-    set_min!(fm::FieldMesh, label::String, val::Real)
+    set_min!(fm::FieldMesh, label::Symbol, val::Real)
 
 Set the grid minimum along `label` by shifting the grid origin.
 """
-function set_min!(fm::FieldMesh, label::String, val::Real)
+function set_min!(fm::FieldMesh, label::Symbol, val::Real)
     i = axis_index(fm, label)
     origin = collect(fm.grid_origin)
     origin[i] = Float64(val)
@@ -220,45 +226,17 @@ function set_min!(fm::FieldMesh, label::String, val::Real)
 end
 
 """
-    set_max!(fm::FieldMesh, label::String, val::Real)
+    set_max!(fm::FieldMesh, label::Symbol, val::Real)
 
 Set the grid maximum along `label` by shifting the grid origin.
 """
-function set_max!(fm::FieldMesh, label::String, val::Real)
+function set_max!(fm::FieldMesh, label::Symbol, val::Real)
     i = axis_index(fm, label)
     current_max = maxs(fm)[i]
     origin = collect(fm.grid_origin)
     origin[i] += Float64(val) - current_max
     fm.grid_origin = NTuple{3, Float64}(origin)
     return fm
-end
-
-# ── Field scaling ─────────────────────────────────────────────────────────
-
-"""
-    scale(fm::FieldMesh) -> Float64
-
-Field scale factor.
-"""
-scale(fm::FieldMesh) = fm.field_scale
-
-"""
-    phase(fm::FieldMesh) -> Float64
-
-Complex phase argument `φ = -2π * RFphase` in radians.
-"""
-phase(fm::FieldMesh) = -fm.rf_phase * 2π
-
-"""
-    factor(fm::FieldMesh)
-
-Complex factor to multiply fields by: `scale * exp(i * phase)`.
-Returns real if phase is zero.
-"""
-function factor(fm::FieldMesh)
-    p = phase(fm)
-    f = fm.field_scale * exp(im * p)
-    return p == 0 ? real(f) : f
 end
 
 """
@@ -283,8 +261,7 @@ is_static(fm::FieldMesh) = fm.harmonic == 0
 True if there are no non-zero magnetic field components.
 """
 function is_pure_electric(fm::FieldMesh)
-    nonzero = [k for (k, v) in fm.components if any(!iszero, v)]
-    return all(startswith(k, "electricField") for k in nonzero)
+    return all(!startswith(string(k), "B") || all(iszero, v) for (k, v) in fm.components)
 end
 
 """
@@ -293,122 +270,38 @@ end
 True if there are no non-zero electric field components.
 """
 function is_pure_magnetic(fm::FieldMesh)
-    nonzero = [k for (k, v) in fm.components if any(!iszero, v)]
-    return all(startswith(k, "magneticField") for k in nonzero)
-end
-
-# ── Component access ──────────────────────────────────────────────────────
-
-"""
-    scaled_component(fm::FieldMesh, key::String) -> Array
-
-Return a field component scaled by `factor(fm)`.
-Accepts aliases like `"Bz"` or full names like `"magneticField/z"`.
-"""
-function scaled_component(fm::FieldMesh, key::String)
-    comp_key = _resolve_component_key(fm, key)
-    if comp_key === nothing
-        return zeros(Float64, fm.grid_size)
-    end
-    dat = fm.components[comp_key]
-    f = factor(fm)
-    return f == 1 ? dat : f .* dat
-end
-
-"""Resolve an alias or full component key, returning nothing if not present."""
-function _resolve_component_key(fm::FieldMesh, key::String)
-    # Direct match
-    haskey(fm.components, key) && return key
-    # Alias lookup
-    if haskey(FIELD_RECORD_FROM_COMPONENT, Symbol(key))
-        full = FIELD_RECORD_FROM_COMPONENT[Symbol(key)]
-        haskey(fm.components, full) && return full
-        return nothing
-    end
-    throw(ArgumentError("Unknown component: $key"))
+    return all(!startswith(string(k), "E") || all(iszero, v) for (k, v) in fm.components)
 end
 
 """
-    _get_operator(key::String) -> (op, stripped_key)
+    field_magnitude(fm, field)
 
-Check if key starts with `re_`, `im_`, `abs_` and return the operator + stripped key.
+Pointwise magnitude of the physical electric (`:E`, V/m) or magnetic (`:B`, T)
+field in the native basis. Complex RF components contribute their squared moduli.
 """
-function _get_operator(key::String)
-    startswith(key, "re_") && return (real, key[4:end])
-    startswith(key, "im_") && return (imag, key[4:end])
-    startswith(key, "abs_") && return (abs, key[5:end])
-    return (nothing, key)
+function field_magnitude(fm::FieldMesh, field::Symbol)
+    field in (:E, :B) || throw(ArgumentError("Expected :E or :B, got $field"))
+    # Scalar zeros broadcast over the stored arrays without allocating missing components.
+    a, b, c = map(axis -> get(fm.components, Symbol(field, axis), 0), fm.axis_labels)
+    if a isa Number && b isa Number && c isa Number
+        return zeros(fm.grid_size)
+    end
+    return hypot.(a, b, c)
 end
 
 """
-    _field_magnitude(fm::FieldMesh, prefix::String) -> Array
-
-Compute field magnitude for `"E"` or `"B"`.
-"""
-function _field_magnitude(fm::FieldMesh, prefix::String)
-    axes = if fm.geometry == "cylindrical"
-        ("r", "z", "theta")
-    elseif fm.geometry == "rectangular"
-        ("x", "y", "z")
-    else
-        throw(ArgumentError("Unknown geometry: $(fm.geometry)"))
-    end
-    f1, f2, f3 = map(axis -> scaled_component(fm, prefix * axis), axes)
-    return @. sqrt(abs(f1)^2 + abs(f2)^2 + abs(f3)^2)
-end
-
-# ── getindex ──────────────────────────────────────────────────────────────
-
-"""
-    fm[key::String]
-
-Access field data by key.
-
-- `fm["Bz"]`, `fm["Ez"]` — scaled field components
-- `fm.components["magneticField/z"]` — unscaled field component
-- `fm["magneticField/z"]` — deprecated access to the unscaled component
-- `fm["re_Bz"]`, `fm["im_Ez"]`, `fm["abs_Ez"]` — with operators
-- `fm["r"]`, `fm["z"]` — coordinate vectors
-- `fm["E"]`, `fm["B"]` — field magnitudes
-"""
-function Base.getindex(fm::FieldMesh, key::String)
-    if haskey(fm.components, key) && occursin('/', key)
-        Base.depwarn("fm[$(repr(key))] is deprecated. Use fm.components[$(repr(key))] for the unscaled field or " *
-                     "scaled_component(fm, $(repr(key))) for the scaled field.", :getindex)
-        return fm.components[key]
-    end
-
-    # Coordinate vectors
-    if key in fm.axis_labels
-        return coord_vec(fm, key)
-    end
-
-    # Check for operators
-    op, stripped = _get_operator(key)
-
-    # Field magnitudes
-    dat = if stripped in ("E", "B")
-        _field_magnitude(fm, stripped)
-    else
-        scaled_component(fm, stripped)
-    end
-
-    return op === nothing ? dat : op.(dat)
-end
-
-"""
-    interpolator(fm::FieldMesh, key::String)
+    interpolator(fm::FieldMesh, component::Symbol)
     interpolator(fm::FieldMesh, data::AbstractArray{<:Number,3})
 
-Build a reusable linear interpolator for a named field quantity or an array
-on the same grid, such as `abs.(fm["Ez"])`. Call it as `itp(x, y, z)`
+Build a reusable linear interpolator for a physical field component or an array
+on the same grid, such as `abs.(fm.Ez)`. Call it as `itp(x, y, z)`
 for rectangular meshes or `itp(r, theta, z)` for cylindrical meshes. A
 singleton axis accepts only its stored coordinate. Queries outside the grid
 throw `BoundsError`.
 
 Rebuild the interpolator after changing the mesh.
 """
-interpolator(fm::FieldMesh, key::String) = interpolator(fm, fm[key])
+interpolator(fm::FieldMesh, component::Symbol) = interpolator(fm, _field_component(fm, component))
 
 function interpolator(fm::FieldMesh, data::AbstractArray{<:Number,3})
     size(data) == fm.grid_size || throw(DimensionMismatch("field array must match grid size $(fm.grid_size)"))
@@ -448,9 +341,10 @@ interpolate(fm::FieldMesh, component_or_array, point::NTuple{3,Real}) =
 Convert FieldMesh to the data dict format expected by `write_pmd_field`.
 """
 function _to_data_dict(fm::FieldMesh)
+    _check_field_components(fm.geometry, fm.grid_size, fm.components)
     attrs = merge(fm.metadata, Dict{String, Any}(
         "gridGeometry" => fm.geometry,
-        "axisLabels" => collect(fm.axis_labels),
+        "axisLabels" => String.(collect(fm.axis_labels)),
         "gridOriginOffset" => collect(fm.grid_origin),
         "gridSpacing" => collect(fm.grid_spacing),
         "gridSize" => collect(fm.grid_size),
@@ -458,10 +352,20 @@ function _to_data_dict(fm::FieldMesh)
         "eleAnchorPt" => fm.ele_anchor_pt,
         "harmonic" => fm.harmonic,
         "fundamentalFrequency" => fm.fundamental_frequency,
-        "RFphase" => fm.rf_phase,
-        "fieldScale" => fm.field_scale,
+        "RFphase" => get(fm.metadata, "RFphase", 0.0),
+        "fieldScale" => get(fm.metadata, "fieldScale", 1.0),
     ))
-    return Dict{String, Any}("attrs" => attrs, "components" => fm.components)
+    # A map originally scaled to zero may now contain edited, nonzero fields.
+    if iszero(attrs["fieldScale"]) && any(data -> any(!iszero, data), values(fm.components))
+        attrs["fieldScale"] = 1.0
+    end
+    file_factor = _file_field_factor(attrs["fieldScale"], attrs["RFphase"])
+    components = Dict{String, Any}()
+    for (key, data) in fm.components
+        path = FIELD_RECORD_FROM_COMPONENT[key]
+        components[path] = isone(file_factor) || iszero(file_factor) ? data : data ./ file_factor
+    end
+    return Dict{String, Any}("attrs" => attrs, "components" => components)
 end
 
 """
@@ -470,10 +374,11 @@ end
 Write a FieldMesh to a new openPMD-beamphysics HDF5 file.
 """
 function write_fieldmesh(filename::AbstractString, fm::FieldMesh)
+    data = _to_data_dict(fm)
     h5open(filename, "w") do h5
         pmd_field_init(h5)
         g = create_group(h5, "ExternalFieldPath/1")
-        write_fieldmesh(g, fm)
+        write_pmd_field(g, data)
     end
 end
 
@@ -501,15 +406,22 @@ function Base.:(==)(a::FieldMesh, b::FieldMesh)
     a.ele_anchor_pt == b.ele_anchor_pt || return false
     a.harmonic == b.harmonic || return false
     a.fundamental_frequency == b.fundamental_frequency || return false
-    a.rf_phase == b.rf_phase || return false
-    a.field_scale == b.field_scale || return false
     a.metadata == b.metadata || return false
-    keys(a.components) == keys(b.components) || return false
-    return all(a.components[k] == b.components[k] for k in keys(a.components))
+    for name in _native_components(a.geometry)
+        x = get(a.components, name, nothing)
+        y = get(b.components, name, nothing)
+        x === y && continue
+        if isnothing(x) || isnothing(y)
+            all(iszero, something(x, y)) || return false
+        elseif x != y
+            return false
+        end
+    end
+    return true
 end
 
-Base.copy(fm::FieldMesh) = FieldMesh(
-    fm.geometry, fm.axis_labels, fm.grid_origin, fm.grid_spacing, fm.grid_size,
-    fm.ele_anchor_pt, fm.harmonic, fm.fundamental_frequency, fm.rf_phase,
-    fm.field_scale, Dict(k => copy(v) for (k, v) in fm.components), deepcopy(fm.metadata)
+Base.copy(fm::FieldMesh) = FieldMesh(;
+    fm.geometry, fm.grid_origin, fm.grid_spacing, fm.grid_size, fm.ele_anchor_pt,
+    fm.harmonic, fm.fundamental_frequency, components=deepcopy(fm.components),
+    metadata=deepcopy(fm.metadata),
 )
