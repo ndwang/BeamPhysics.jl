@@ -130,6 +130,15 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         @test size(bz) == (31, 1, 481)
         @test bz ≈ fm.field_scale .* fm.components["magneticField/z"]
 
+        raw = fm.components["magneticField/z"]
+        @test_deprecated r"unscaled field" begin
+            stored = fm["magneticField/z"]
+            @test stored === raw
+        end
+        @test raw[1, 1, 241] ≈ 1.0       # r=0, z=0
+        @test bz[1, 1, 241] ≈ 0.06
+        @test scaled_component(fm, "magneticField/z") ≈ bz
+
         # Operator prefix
         re_bz = fm["re_Bz"]
         @test re_bz ≈ real.(bz)

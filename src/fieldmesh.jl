@@ -381,11 +381,19 @@ end
 Access field data by key.
 
 - `fm["Bz"]`, `fm["Ez"]` — scaled field components
+- `fm.components["magneticField/z"]` — unscaled field component
+- `fm["magneticField/z"]` — deprecated access to the unscaled component
 - `fm["re_Bz"]`, `fm["im_Ez"]`, `fm["abs_Ez"]` — with operators
 - `fm["r"]`, `fm["z"]` — coordinate vectors
 - `fm["E"]`, `fm["B"]` — field magnitudes
 """
 function Base.getindex(fm::FieldMesh, key::String)
+    if haskey(fm.components, key) && occursin('/', key)
+        Base.depwarn("fm[$(repr(key))] is deprecated. Use fm.components[$(repr(key))] for the unscaled field or " *
+                     "scaled_component(fm, $(repr(key))) for the scaled field.", :getindex)
+        return fm.components[key]
+    end
+
     # Coordinate vectors
     if key in fm.axis_labels
         return coord_vec(fm, key)

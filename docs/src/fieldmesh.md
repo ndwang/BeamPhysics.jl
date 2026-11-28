@@ -42,6 +42,11 @@ fm["B"]       # |B| across all components
 fm["E"]       # |E| across all components
 ```
 
+Bare record-name indexing such as `fm["magneticField/z"]` previously returned
+the scaled field. It now returns the unscaled component and is deprecated,
+matching Python `beamphysics`. Use `fm.components["magneticField/z"]` to
+access the unscaled array and `fm["Bz"]` to apply the field scale and phase.
+
 The underlying functions are [`coord_vec`](@ref) and [`scaled_component`](@ref);
 use [`coord_vecs`](@ref) to retrieve all three coordinate vectors at once.
 
