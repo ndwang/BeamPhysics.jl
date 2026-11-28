@@ -75,6 +75,31 @@ zmin(fm); zmax(fm); dz(fm)
 
 See [`axis_index`](@ref), [`mins`](@ref), [`maxs`](@ref), [`deltas`](@ref).
 
+## Sampling an axisymmetric solenoid
+
+A cylindrical map with one theta sample represents an axisymmetric field. Use
+the stored theta coordinate for interpolation and the particle's azimuth to
+rotate the field into Cartesian coordinates. For the LCLS-II solenoid,
+the azimuthal magnetic component is zero, so only `Br` and `Bz` enter:
+
+```julia
+fm = FieldMesh("lcls2_solenoid_fieldmesh.h5")
+br = interpolator(fm, "Br")
+bz = interpolator(fm, "Bz")
+theta_grid = only(fm["theta"])
+
+x, y, z = 0.012, 0.016, -0.04  # particle position [m]
+radius = hypot(x, y)
+azimuth = atan(y, x)
+radial_field = br(radius, theta_grid, z)
+Bx = radial_field * cos(azimuth)
+By = radial_field * sin(azimuth)
+Bz = bz(radius, theta_grid, z)
+```
+
+The component keys select fields in the map's native basis. Looking up
+`fm["Bx"]` on a cylindrical mesh does not perform this rotation.
+
 ## Field Properties
 
 ```julia
