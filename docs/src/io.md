@@ -20,10 +20,10 @@ h5open("particles.h5", "r") do h5
 end
 ```
 
-The constructor preserves particle IDs and optional openPMD columns such as
-reference momentum, spin, and charge state. Optional columns are available in
-`pg.extra`, for example `pg.extra[:p0c]` in eV/c and `pg.extra[:spin_x]` in units of hbar.
-Time offsets are added by default; pass `include_time_offset=false` to read the
+Each entry in `pg.weight` is the macroparticle charge in coulombs.
+Particle IDs are available in `pg.id` and optional columns in `pg.extra`,
+for example `pg.extra[:p0c]` in eV/c and `pg.extra[:spin_x]` in units of hbar.
+The reader adds time offsets by default. Pass `include_time_offset=false` to read the
 stored time without its offset.
 
 ## Writing Particles
@@ -33,7 +33,10 @@ write_particle_group("output.h5", pg)
 # If pg.t holds raw times, pass t_offset in seconds to write a separate timeOffset record.
 ```
 
-See [`write_particle_group`](@ref).
+[`write_particle_group`](@ref) preserves particle IDs and the following optional
+columns in `pg.extra` when present: `s`, `ix_branch`, `ix_ele`, `location`,
+`p0c`, `spin_x`, `spin_y`, `spin_z`, and `charge_state`. Other entries,
+such as a user-defined `pg.extra[:diagnostic]`, are in-memory only.
 
 ## Reading Field Meshes
 
