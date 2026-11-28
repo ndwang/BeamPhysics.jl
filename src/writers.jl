@@ -138,40 +138,38 @@ Write field mesh data in openPMD format.
 
 `data` is a Dict with:
 - `"attrs"`: flat dict of field attributes
-- `"components"`: flat dict of component name => stored profile array
-- `"component_units"` (optional): dict of component name => PMDUnit, defaulting to SI
+- `"components"`: stored profile arrays keyed by native symbols such as `:Ex` or `:Bz`
+- `"component_units"` (optional): `PMDUnit` values keyed by the same symbols. Omitted units default to SI.
 
 See inverse routine: `load_field_attrs`
 """
 function write_pmd_field(h5, data::Dict; name=nothing)
+    field = _field_write_data(data["attrs"], data["components"], get(data, "component_units", Dict()))
+    return _write_pmd_field(h5, field, name)
+end
+
+function _field_write_data(attributes, components, units)
+    field_attrs, other = load_field_attrs(attributes)
+    _check_field_components(field_attrs["gridGeometry"], Tuple(field_attrs["gridSize"]), components, units)
+    for name in keys(units)
+        haskey(components, name) || throw(ArgumentError("No stored profile for component unit $name"))
+    end
+    return (; attributes=merge(other, field_attrs), components, units)
+end
+
+function _write_pmd_field(h5, field, name)
     g = isnothing(name) ? h5 : create_group(h5, name)
-
-    # Validate attrs
-    field_attrs, other = load_field_attrs(data["attrs"])
-
-    # Write attributes
-    for (k, v) in field_attrs
-        attrs(g)[k] = v
-    end
-    for (k, v) in other
+    for (k, v) in field.attributes
         attrs(g)[k] = v
     end
 
-    # Write components
-    reverse_axes = !(Tuple(field_attrs["axisLabels"]) in REVERSED_FIELD_AXES)
-    grid_size = Tuple(field_attrs["gridSize"])
-    units = get(data, "component_units", Dict())
-    for (key, val) in data["components"]
-        component = get(FIELD_RECORD_FROM_COMPONENT, Symbol(key), key)
-        haskey(FIELD_COMPONENT_FROM_RECORD, component) ||
-            throw(ArgumentError("Unknown field component: $key"))
-        size(val) == grid_size ||
-            throw(DimensionMismatch("$key does not match gridSize"))
-        unit = get(units, key) do
-            pg_units(String(FIELD_COMPONENT_FROM_RECORD[component]))
+    reverse_axes = !(Tuple(field.attributes["axisLabels"]) in REVERSED_FIELD_AXES)
+    for (key, val) in field.components
+        unit = get(field.units, key) do
+            pg_units(String(key))
         end
         samples = eltype(val) <: Complex{<:AbstractFloat} ? val : complex.(float.(val))
-        write_component_data(g, component, samples; unit, reverse_axes)
+        write_component_data(g, FIELD_RECORD_FROM_COMPONENT[key], samples; unit, reverse_axes)
     end
 end
 

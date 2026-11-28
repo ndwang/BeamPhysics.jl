@@ -582,12 +582,20 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
                     "gridSize"          => [10, 10, 10],
                     "harmonic"          => [0],
                 ),
-                "components" => Dict{String, Any}(
-                    "Ex" => fill(0.0, 10, 10, 10),
-                )
+                "components" => Dict(:Ex => fill(2.0, 10, 10, 10), :Bz => zeros(10, 10, 10)),
+                "component_units" => Dict(:Ex => PMDUnit("MV/m", 1e6, "electric_field")),
             )
             h5open(tmpfile, "w") do h5
                 pmd_field_init(h5)
+                for invalid in (
+                    Dict("components" => Dict("electricField/x" => zeros(10, 10, 10))),
+                    Dict("component_units" => Dict("Ex" => PMDUnit("V/m"))),
+                    Dict("component_units" => Dict(:Ey => PMDUnit("V/m"))),
+                    Dict("component_units" => Dict(:Ex => PMDUnit("T"))),
+                )
+                    @test_throws ArgumentError write_pmd_field(h5, merge(field_data, invalid); name="invalid")
+                    @test !haskey(h5, "invalid")
+                end
                 g = create_group(h5, "ExternalFieldPath/1")
                 write_pmd_field(g, field_data)
             end
@@ -599,9 +607,14 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
                 @test a["gridGeometry"] == "rectangular"
                 @test a["eleAnchorPt"]  == "center"
                 @test a["gridSize"]     == [10, 10, 10]
-                # Ex should be written as constant (all zeros)
-                @test haskey(g, "electricField/x")
+                @test attrs(g["electricField/x"])["unitSI"] == 1e6
+                @test attrs(g["magneticField/z"])["unitSI"] == 1
+                @test FieldMesh(g).Ex[1] == 2e6
             end
+            fm = FieldMesh(tmpfile)
+            fm.component_units[:Ex] = PMDUnit("T")
+            @test_throws ArgumentError write_fieldmesh(tmpfile, fm)
+            @test FieldMesh(tmpfile).Ex[1] == 2e6
         finally
             rm(tmpfile; force=true)
         end

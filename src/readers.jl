@@ -34,7 +34,6 @@ const FIELD_RECORD_FROM_COMPONENT = Dict(
     Symbol(prefix, axis) => record * "/" * axis
     for (prefix, record) in (("E", "electricField"), ("B", "magneticField"))
     for axis in ("x", "y", "z", "r", "theta"))
-const FIELD_COMPONENT_FROM_RECORD = Dict(record => component for (component, record) in FIELD_RECORD_FROM_COMPONENT)
 
 # Expected unit dimensions for particle and field records
 const EXPECTED_RECORD_UNIT_DIMENSION = Dict{String, NTuple{7, Float64}}(

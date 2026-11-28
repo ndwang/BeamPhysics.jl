@@ -57,18 +57,13 @@ mutable struct FieldMesh
                        ele_anchor_pt, harmonic, fundamental_frequency, metadata=Dict{String,Any}(),
                        field_scale=get(metadata, "fieldScale", 1.0), rf_phase=get(metadata, "RFphase", 0.0),
                        component_units=Dict{Symbol,PMDUnit}())
-        _check_field_components(geometry, grid_size, components)
+        _check_field_components(geometry, grid_size, components, component_units)
         profiles = Dict{Symbol, Array{<:Number,3}}()
         for (name, data) in components
             # Physical writes can be fractional, and RF writes can change either quadrature.
             T = float(eltype(data))
             sample_type = iszero(harmonic) ? T : complex(T)
             profiles[name] = convert(Array{sample_type,3}, data)
-        end
-        for (name, unit) in component_units
-            name in _native_components(geometry) || throw(ArgumentError("Unknown $geometry component $name"))
-            unit.dims == pg_units(String(name)).dims ||
-                throw(ArgumentError("$name has incompatible unitDimension $(unit.dims)"))
         end
         file_attrs = merge(Dict{String,Any}("gridLowerBound" => [0, 0, 0]), metadata)
         delete!(file_attrs, "fieldScale")
@@ -79,11 +74,16 @@ mutable struct FieldMesh
     end
 end
 
-function _check_field_components(geometry, grid_size, components)
+function _check_field_components(geometry, grid_size, components, component_units)
     native = _native_components(geometry)
     for (name, data) in components
         name in native || throw(ArgumentError("$name is not a native $geometry field component"))
         size(data) == grid_size || throw(DimensionMismatch("$name has size $(size(data)); expected $grid_size"))
+    end
+    for (name, unit) in component_units
+        name in native || throw(ArgumentError("$(repr(name)) is not a native $geometry field component"))
+        unit.dims == pg_units(String(name)).dims ||
+            throw(ArgumentError("$name has incompatible unitDimension $(unit.dims)"))
     end
 end
 
@@ -394,13 +394,7 @@ interpolate(fm::FieldMesh, component_or_array, point::NTuple{3,Real}) =
 
 # ── I/O ───────────────────────────────────────────────────────────────────
 
-"""
-    _to_data_dict(fm::FieldMesh) -> Dict
-
-Convert FieldMesh to the data dict format expected by `write_pmd_field`.
-"""
-function _to_data_dict(fm::FieldMesh)
-    _check_field_components(fm.geometry, fm.grid_size, fm.components)
+function _field_write_data(fm::FieldMesh)
     attrs = merge(fm.metadata, Dict{String, Any}(
         "gridGeometry" => fm.geometry,
         "axisLabels" => String.(collect(fm.axis_labels)),
@@ -414,8 +408,7 @@ function _to_data_dict(fm::FieldMesh)
         "RFphase" => fm.rf_phase,
         "fieldScale" => fm.field_scale,
     ))
-    return Dict{String, Any}("attrs" => attrs, "components" => fm.components,
-                             "component_units" => fm.component_units)
+    return _field_write_data(attrs, fm.components, fm.component_units)
 end
 
 """
@@ -424,11 +417,10 @@ end
 Write a FieldMesh to a new openPMD-beamphysics HDF5 file.
 """
 function write_fieldmesh(filename::AbstractString, fm::FieldMesh)
-    data = _to_data_dict(fm)
+    data = _field_write_data(fm)
     h5open(filename, "w") do h5
         pmd_field_init(h5)
-        g = create_group(h5, "ExternalFieldPath/1")
-        write_pmd_field(g, data)
+        _write_pmd_field(h5, data, "ExternalFieldPath/1")
     end
 end
 
@@ -438,7 +430,7 @@ end
 Write a FieldMesh to an open HDF5 group.
 """
 function write_fieldmesh(h5, fm::FieldMesh; name=nothing)
-    write_pmd_field(h5, _to_data_dict(fm); name=name)
+    _write_pmd_field(h5, _field_write_data(fm), name)
 end
 
 # ── Base overloads ────────────────────────────────────────────────────────
