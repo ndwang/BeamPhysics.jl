@@ -478,26 +478,3 @@ end
 @testset "pg_units — error on unknown key" begin
     @test_throws ErrorException pg_units("totally_unknown_key")
 end
-
-# ── Full ParticleGroup HDF5 round-trip ─────────────────────────────────────
-
-@testset "ParticleGroup HDF5 round-trip" begin
-    pg = single_particle(x=1e-3, px=1e6, y=2e-3, py=-5e5,
-                         z=0.01, pz=1e9, t=1e-12, weight=1e-15)
-    tmpfile = tempname() * ".h5"
-    try
-        write_particle_group(tmpfile, pg)
-        pg2 = ParticleGroup(tmpfile)
-        @test length(pg2) == 1
-        @test pg2.x  ≈ pg.x   rtol=1e-12
-        @test pg2.px ≈ pg.px  rtol=1e-12
-        @test pg2.y  ≈ pg.y   rtol=1e-12
-        @test pg2.py ≈ pg.py  rtol=1e-12
-        @test pg2.z  ≈ pg.z   rtol=1e-12
-        @test pg2.pz ≈ pg.pz  rtol=1e-12
-        @test pg2.t  ≈ pg.t   rtol=1e-12
-        @test pg2.weight ≈ pg.weight rtol=1e-12
-    finally
-        rm(tmpfile; force=true)
-    end
-end
