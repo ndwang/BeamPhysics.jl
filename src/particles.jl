@@ -134,51 +134,203 @@ Base.length(pg::AbstractParticleGroup) = length(pg.x)
 
 # ---- Standalone derived-property functions ----
 
+"""
+    nalive(pg)
+
+Count particles with `status == 1` (alive).
+"""
 nalive(pg::AbstractParticleGroup) = count(pg.status .== 1)
+
+"""
+    ndead(pg)
+
+Count particles with a status other than 1 (dead).
+"""
 ndead(pg::AbstractParticleGroup) = length(pg) - nalive(pg)
+
+"""
+    mass(pg)
+
+Return the particle species’ rest energy `mc²` in eV.
+"""
 mass(pg::AbstractParticleGroup) = massof(pg.species)
+
+"""
+    species_charge(pg)
+
+Return the charge of one particle of this species in coulombs, including its sign.
+"""
 species_charge(pg::AbstractParticleGroup) = chargeof(pg.species; C=true)
+
+"""
+    charge(pg)
+
+Return the total macroparticle charge in coulombs, summed over all particle weights.
+"""
 charge(pg::AbstractParticleGroup) = sum(pg.weight)
 
+"""
+    momentum(pg)
+
+Return the magnitude of each particle's momentum in eV/c.
+"""
 momentum(pg::AbstractParticleGroup) = sqrt.(pg.px.^2 .+ pg.py.^2 .+ pg.pz.^2)
+
+"""
+    energy(pg)
+
+Return the total energy of each particle in eV, including its rest energy.
+"""
 energy(pg::AbstractParticleGroup) = sqrt.(pg.px.^2 .+ pg.py.^2 .+ pg.pz.^2 .+ mass(pg)^2)
+
+"""
+    kinetic_energy(pg)
+
+Return the kinetic energy of each particle in eV.
+"""
 kinetic_energy(pg::AbstractParticleGroup) = energy(pg) .- mass(pg)
 
+"""
+    xp(pg)
+
+Return the horizontal slope `px/pz` of each particle.
+"""
 xp(pg::AbstractParticleGroup) = pg.px ./ pg.pz
+
+"""
+    yp(pg)
+
+Return the vertical slope `py/pz` of each particle.
+"""
 yp(pg::AbstractParticleGroup) = pg.py ./ pg.pz
 
+"""
+    r(pg)
+
+Return the cylindrical radius `hypot(x, y)` of each particle in metres.
+"""
 r(pg::AbstractParticleGroup) = hypot.(pg.x, pg.y)
+
+"""
+    theta(pg)
+
+Return the azimuthal angle `atan(y, x)` of each particle in radians.
+"""
 theta(pg::AbstractParticleGroup) = atan.(pg.y, pg.x)
 
+"""
+    pr(pg)
+
+Return the radial component of each particle's momentum in eV/c.
+"""
 function pr(pg::AbstractParticleGroup)
     th = theta(pg)
     return pg.px .* cos.(th) .+ pg.py .* sin.(th)
 end
 
+"""
+    ptheta(pg)
+
+Return the azimuthal component of each particle's momentum in eV/c.
+"""
 function ptheta(pg::AbstractParticleGroup)
     th = theta(pg)
     return -pg.px .* sin.(th) .+ pg.py .* cos.(th)
 end
 
+"""
+    Lz(pg)
+
+Return the axial angular momentum `x*py - y*px` of each particle in m·eV/c.
+"""
 Lz(pg::AbstractParticleGroup) = pg.x .* pg.py .- pg.y .* pg.px
 
+"""
+    gamma(pg)
+
+Return the Lorentz factor of each particle.
+"""
 gamma(pg::AbstractParticleGroup) = energy(pg) ./ mass(pg)
+
+"""
+    beta(pg)
+
+Return the speed of each particle as a fraction of the speed of light.
+"""
 beta(pg::AbstractParticleGroup) = momentum(pg) ./ energy(pg)
+
+"""
+    beta_x(pg)
+
+Return the velocity component `vx/c` of each particle.
+"""
 beta_x(pg::AbstractParticleGroup) = pg.px ./ energy(pg)
+
+"""
+    beta_y(pg)
+
+Return the velocity component `vy/c` of each particle.
+"""
 beta_y(pg::AbstractParticleGroup) = pg.py ./ energy(pg)
+
+"""
+    beta_z(pg)
+
+Return the velocity component `vz/c` of each particle.
+"""
 beta_z(pg::AbstractParticleGroup) = pg.pz ./ energy(pg)
 
 # These call normalized_particle_coordinate (defined in statistics.jl, resolved at call time)
+"""
+    x_bar(pg)
+
+Return the normalized horizontal position of each particle in √m.
+"""
 x_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, :x)
+
+"""
+    px_bar(pg)
+
+Return the normalized horizontal momentum coordinate of each particle in √m.
+"""
 px_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, :px)
+
+"""
+    y_bar(pg)
+
+Return the normalized vertical position of each particle in √m.
+"""
 y_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, :y)
+
+"""
+    py_bar(pg)
+
+Return the normalized vertical momentum coordinate of each particle in √m.
+"""
 py_bar(pg::AbstractParticleGroup) = normalized_particle_coordinate(pg, :py)
 
+"""
+    Jx(pg)
+
+Return the horizontal action `(x_bar² + px_bar²)/2` of each particle in metres.
+"""
 Jx(pg::AbstractParticleGroup) = particle_amplitude(pg; plane=:x)
+
+"""
+    Jy(pg)
+
+Return the vertical action `(y_bar² + py_bar²)/2` of each particle in metres.
+"""
 Jy(pg::AbstractParticleGroup) = particle_amplitude(pg; plane=:y)
 
 # ---- set_charge! ----
 
+"""
+    set_charge!(pg, val)
+
+Rescale the particle weights in place so their sum is `val` coulombs.
+The requested charge must be positive.
+"""
 function set_charge!(pg::AbstractParticleGroup, val)
     val > 0 || throw(ArgumentError("charge must be >0. This is used to weight the particles."))
     pg.weight .*= val / charge(pg)
@@ -220,16 +372,33 @@ function _particle_values(pg, f)
 end
 # ---- Coordinate checks ----
 
+"""
+    in_z_coordinates(pg)
+
+Return `true` if all particles have exactly the same longitudinal position `z`.
+"""
 function in_z_coordinates(pg::AbstractParticleGroup)
     return all(==(pg.z[1]), pg.z)
 end
 
+"""
+    in_t_coordinates(pg)
+
+Return `true` if all particles have exactly the same time `t`.
+"""
 function in_t_coordinates(pg::AbstractParticleGroup)
     return all(==(pg.t[1]), pg.t)
 end
 
 # ---- average_current ----
 
+"""
+    average_current(pg)
+
+Return total charge divided by the full time span, in amperes. For a common-time
+bunch, estimate the duration as the full z span divided by the charge-weighted
+mean longitudinal velocity.
+"""
 function average_current(pg::AbstractParticleGroup)
     dt = ptp(pg.t)
     if dt == 0
@@ -240,6 +409,13 @@ end
 
 # ---- Drift methods ----
 
+"""
+    drift!(pg, delta_t)
+
+Update particle positions and times in place by drifting for `delta_t` seconds.
+Pass a scalar for all particles or a vector with one interval per particle.
+Negative intervals drift backward.
+"""
 function drift!(pg::AbstractParticleGroup, delta_t::Union{Number,AbstractVector})
     if delta_t isa AbstractVector && length(delta_t) != length(pg)
         throw(ArgumentError("delta_t length must match number of particles"))
@@ -251,6 +427,11 @@ function drift!(pg::AbstractParticleGroup, delta_t::Union{Number,AbstractVector}
     pg.t .+= delta_t
 end
 
+"""
+    drift_to_z!(pg, z)
+
+Drift the particles in place to the plane at `z` in metres.
+"""
 function drift_to_z!(pg::AbstractParticleGroup, z::Real)
     E = energy(pg)
     dt = (z .- pg.z) ./ ((pg.pz ./ E) .* C_LIGHT)
@@ -258,17 +439,32 @@ function drift_to_z!(pg::AbstractParticleGroup, z::Real)
     pg.z .= z
 end
 
+"""
+    drift_to_z!(pg)
+
+Drift the particles in place to their pre-drift charge-weighted mean `z`.
+"""
 function drift_to_z!(pg::AbstractParticleGroup)
     z = mean(pg, :z)
     drift_to_z!(pg, z)
 end
 
+"""
+    drift_to_t!(pg, t)
+
+Drift the particles in place to the time `t` in seconds.
+"""
 function drift_to_t!(pg::AbstractParticleGroup, t::Real)
     dt = t .- pg.t
     drift!(pg, dt)
     pg.t .= t
 end
 
+"""
+    drift_to_t!(pg)
+
+Drift the particles in place to their pre-drift charge-weighted mean time.
+"""
 function drift_to_t!(pg::AbstractParticleGroup)
     t = mean(pg, :t)
     drift_to_t!(pg, t)

@@ -24,31 +24,70 @@ ParticleGroup(file::AbstractString)
 
 ## Particle Derived Properties
 
-Call these functions with a particle group.
+### Group properties
 
-**Scalar:** `nalive`, `ndead`, `mass`, `species_charge`, `charge`, `average_current`
+```@docs
+nalive
+ndead
+mass
+species_charge
+charge
+average_current
+```
 
-**Per-particle arrays:**
-`momentum`, `energy`, `kinetic_energy`, `gamma`, `beta`, `beta_x`, `beta_y`, `beta_z`,
-`xp`, `yp`, `r`, `theta`, `pr`, `ptheta`, `Lz`,
-`x_bar`, `px_bar`, `y_bar`, `py_bar`, `Jx`, `Jy`.
+### Per-particle arrays
 
-**Emittances:** `norm_emit_x`, `norm_emit_y`, `norm_emit_4d`.
+```@docs
+momentum
+energy
+kinetic_energy
+gamma
+beta
+beta_x
+beta_y
+beta_z
+xp
+yp
+r
+theta
+pr
+ptheta
+Lz
+x_bar
+px_bar
+y_bar
+py_bar
+Jx
+Jy
+```
+
+### Emittances
+
+```@docs
+norm_emit_x
+norm_emit_y
+norm_emit_4d
+```
 
 ## Particle Operations
 
-`drift!(pg, dt)`, `drift_to_z!(pg[, z])`, `drift_to_t!(pg[, t])`,
-`set_charge!(pg, val)`,
-`in_z_coordinates(pg)`, `in_t_coordinates(pg)`
+```@docs
+drift!
+drift_to_z!
+drift_to_t!
+set_charge!
+in_z_coordinates
+in_t_coordinates
+```
 
 ## Statistics
 
-`delta(pg, column)` returns deviations from the weighted mean.
-`ptp(pg, column)` returns the peak-to-peak range.
-
 ```@docs
 mean(::BeamPhysics.AbstractParticleGroup, ::Any)
+std(::BeamPhysics.AbstractParticleGroup, ::Any)
 cov(::BeamPhysics.AbstractParticleGroup, ::Any, ::Any)
+delta
+ptp
 norm_emit_calc
 twiss_calc
 twiss_dispersion

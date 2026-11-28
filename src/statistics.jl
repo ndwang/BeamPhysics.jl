@@ -9,9 +9,8 @@ end
 
 """
     mean(pg, column; mask=nothing)
-    std(pg, column; mask=nothing)
 
-Weighted mean and population standard deviation. Pass a symbol naming a stored
+Charge-weighted mean. Pass a symbol naming a stored
 column or a function returning one value per particle. A Boolean mask selects
 particles before evaluating the column. By default, all particles contribute.
 """
@@ -22,6 +21,13 @@ function mean(pg::AbstractParticleGroup, column; mask=nothing)
     return mean(values, weights(pg.weight))
 end
 
+"""
+    std(pg, column; mask=nothing)
+
+Return the charge-weighted population standard deviation of a stored column or a
+function returning one value per particle. An optional Boolean `mask` selects
+particles before the column is evaluated.
+"""
 function std(pg::AbstractParticleGroup, column; mask=nothing)
     pg = _masked_group(pg, mask)
     values = _particle_values(pg, column)
@@ -62,13 +68,30 @@ function covariance_matrix(pg::AbstractParticleGroup, columns...; mask=nothing)
     return cov(data, weights(pg.weight), 1; corrected=false)
 end
 
+"""
+    delta(pg, column)
+
+Return each particle's deviation from the charge-weighted mean of `column`.
+Pass a stored column name or a function returning one value per particle.
+"""
 function delta(pg::AbstractParticleGroup, column)
     values = _particle_values(pg, column)
     center = length(values) == 1 ? only(values) : mean(values, weights(pg.weight))
     return values .- center
 end
 
+"""
+    ptp(x)
+
+Return the peak-to-peak range `maximum(x) - minimum(x)` of an array.
+"""
 ptp(x::AbstractArray) = maximum(x) - minimum(x)
+
+"""
+    ptp(pg, column)
+
+Return the peak-to-peak range of a stored column or a function returning one value per particle.
+"""
 ptp(pg::AbstractParticleGroup, column) = ptp(_particle_values(pg, column))
 
 function _momentum_column(plane::Symbol)
@@ -88,8 +111,25 @@ function norm_emit_calc(pg::AbstractParticleGroup, planes=(:x,))
     return sqrt(det(S)) / mass(pg)^length(planes)
 end
 
+"""
+    norm_emit_x(pg)
+
+Return the normalized horizontal emittance in metres.
+"""
 norm_emit_x(pg::AbstractParticleGroup) = norm_emit_calc(pg, (:x,))
+
+"""
+    norm_emit_y(pg)
+
+Return the normalized vertical emittance in metres.
+"""
 norm_emit_y(pg::AbstractParticleGroup) = norm_emit_calc(pg, (:y,))
+
+"""
+    norm_emit_4d(pg)
+
+Return the normalized 4D emittance in the horizontal and vertical planes in m².
+"""
 norm_emit_4d(pg::AbstractParticleGroup) = norm_emit_calc(pg, (:x, :y))
 
 """
