@@ -49,8 +49,11 @@ function write_component_data(h5, name, data; unit=nothing, reverse_axes=true)
         attrs(g)["value"] = first(data)
         attrs(g)["shape"] = collect(size(data))
     else
-        # Non-constant: store as dataset
-        h5[name] = reverse_axes && ndims(data) > 1 ? permutedims(data, Tuple(ndims(data):-1:1)) : data
+        if reverse_axes && ndims(data) > 1
+            data = permutedims(data, Tuple(ndims(data):-1:1))
+        end
+        # HDF5 needs a dense buffer for strided or reordered selections.
+        h5[name] = convert(Array, data)
         g = h5[name]
     end
 
@@ -99,7 +102,7 @@ function write_pmd_bunch(h5, data::Dict; name=nothing, t_offset=0.0)
 
     # Optional id (no units)
     if haskey(data, "id")
-        g["id"] = data["id"]
+        g["id"] = convert(Vector, data["id"])
     end
 
     for key in OPTIONAL_PARTICLE_COLUMNS

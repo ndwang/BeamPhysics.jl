@@ -53,6 +53,13 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
             @test isapprox(ParticleGroup(file), pg)
             @test ParticleGroup(file).id == ids
 
+            for rows in (1:2:3, [3, 1])
+                write_particle_group(file, view(pg, rows))
+                restored = ParticleGroup(file)
+                @test isapprox(restored, pg[rows])
+                @test restored.id == ids[rows]
+            end
+
             file = joinpath(dir, "field.h5")
             write_fieldmesh(file, fm)
             h5open(file) do h5
