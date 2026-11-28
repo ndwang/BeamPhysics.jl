@@ -69,7 +69,9 @@ to get its full complex values.
 
 For a component present in the file, `fm.components[:Ez]` holds the unscaled
 profile in its original units, and `fm.component_units[:Ez].scale` gives its
-conversion factor to V/m. A physical edit updates the corresponding unscaled
+conversion factor to V/m. Changing the declared unit reinterprets the stored
+samples immediately, including through previously obtained views.
+A physical edit updates the corresponding unscaled
 sample. Changing `fm.field_scale` or `fm.rf_phase` leaves the profile intact.
 At zero scale all physical samples are zero. To edit the profile then, use
 `fm.components[:Ez]` directly or restore a nonzero scale before editing `fm.Ez`.

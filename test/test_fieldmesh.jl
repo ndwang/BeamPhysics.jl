@@ -31,6 +31,19 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
             0.75 * abs(rf.Ex[1, 1, 1]) + 0.25 * abs(rf.Ex[2, 1, 1])
     end
 
+    @testset "Retained views follow component units" begin
+        fm = FieldMesh(; geometry="rectangular", grid_origin=(0, 0, 0),
+                       grid_spacing=(1, 1, 1), grid_size=(1, 1, 1), ele_anchor_pt="center",
+                       harmonic=0, fundamental_frequency=0, components=Dict(:Bz => fill(2.0, 1, 1, 1)),
+                       component_units=Dict(:Bz => PMDUnit("mT", 1e-3, "magnetic_field")))
+        bz = fm.Bz
+        @test bz[1] == 0.002
+        fm.component_units[:Bz] = PMDUnit("T")
+        @test bz[1] == fm.Bz[1] == 2
+        bz[1] = 3
+        @test fm.components[:Bz][1] == fm.Bz[1] == 3
+    end
+
     @testset "Construction from HDF5 file" begin
         fm = FieldMesh(FIELDMESH_FILE)
         @test fm isa FieldMesh

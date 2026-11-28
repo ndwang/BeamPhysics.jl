@@ -87,12 +87,10 @@ function _check_field_components(geometry, grid_size, components, component_unit
     end
 end
 
-# Look up scale and phase on the mesh so a retained view follows a voltage or phase scan.
 struct PhysicalFieldView{T,A} <: AbstractArray{T,3}
     mesh::FieldMesh
     component::Symbol
     samples::A
-    unit_scale::Float64
 end
 
 Base.size(v::PhysicalFieldView) = v.mesh.grid_size
@@ -100,7 +98,8 @@ Base.IndexStyle(::Type{<:PhysicalFieldView}) = IndexLinear()
 _samples(v::PhysicalFieldView) = v.samples
 _samples(v::PhysicalFieldView{T,Nothing}) where {T} = get(v.mesh.components, v.component, nothing)
 function _field_gain(v::PhysicalFieldView{T}) where {T}
-    scale = v.mesh.field_scale * v.unit_scale
+    unit = get(v.mesh.component_units, v.component, nothing)
+    scale = v.mesh.field_scale * (isnothing(unit) ? 1.0 : unit.scale)
     phase = v.mesh.rf_phase
     iszero(phase) && return scale
     # A retained real view of a static map continues to give the in-phase field.
@@ -142,9 +141,8 @@ function _field_component(fm::FieldMesh, name::Symbol)
     name in _native_components(fm.geometry) ||
         throw(ArgumentError("$name is not a native $(fm.geometry) field component"))
     samples = get(fm.components, name, nothing)
-    unit = get(fm.component_units, name, nothing)
     T = is_static(fm) && iszero(fm.rf_phase) ? Float64 : ComplexF64
-    return PhysicalFieldView{T,typeof(samples)}(fm, name, samples, isnothing(unit) ? 1.0 : unit.scale)
+    return PhysicalFieldView{T,typeof(samples)}(fm, name, samples)
 end
 
 function Base.getproperty(fm::FieldMesh, name::Symbol)
