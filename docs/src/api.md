@@ -4,6 +4,9 @@ Complete listing of all exported symbols.
 
 ## Types
 
+`Species` is re-exported from AtomicAndPhysicalConstants. For example, `Species("electron")`
+selects the electron species when constructing a particle group.
+
 ```@docs
 ParticleGroup
 ParticleGroupView

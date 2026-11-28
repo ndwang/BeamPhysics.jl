@@ -19,7 +19,7 @@ include("labels.jl")
 include("plotting.jl")
 
 # Export key types and constructors
-export ParticleGroup, ParticleGroupView, single_particle
+export Species, ParticleGroup, ParticleGroupView, single_particle
 export FieldMesh, write_fieldmesh
 export interpolator, interpolate
 export axis_index, mins, maxs, deltas, coord_vec, coord_vecs

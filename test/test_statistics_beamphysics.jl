@@ -1,4 +1,4 @@
-using AtomicAndPhysicalConstants: Species, massof, C_LIGHT
+using AtomicAndPhysicalConstants: massof, C_LIGHT
 using LinearAlgebra: det
 import Statistics
 import Statistics: mean as _mean

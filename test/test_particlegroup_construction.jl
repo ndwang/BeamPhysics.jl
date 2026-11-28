@@ -1,4 +1,4 @@
-using AtomicAndPhysicalConstants: Species, massof
+using AtomicAndPhysicalConstants: massof
 
 @testset "ParticleGroup Construction" begin
 

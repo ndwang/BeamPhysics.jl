@@ -1,4 +1,4 @@
-using AtomicAndPhysicalConstants: Species, massof, E_CHARGE
+using AtomicAndPhysicalConstants: massof, E_CHARGE
 
 const _PROP_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
 
