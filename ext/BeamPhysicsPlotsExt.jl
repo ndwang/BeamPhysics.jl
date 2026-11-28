@@ -390,6 +390,13 @@ end
 
 # ── FieldMesh plotting ─────────────────────────────────────────────────────
 
+function _field_label(component, prefix)
+    op, name = BeamPhysics._get_operator(component)
+    label = mathlabel(name; units=prefix * string(pg_units(name)))
+    isnothing(op) && return label
+    return (op === real ? "Re " : op === imag ? "Im " : "abs ") * label
+end
+
 """
     fieldmesh_plot(fm::FieldMesh; component=nothing, mirror=false, cmap=:plasma, kwargs...)
 
@@ -403,6 +410,8 @@ For rectangular geometry, plots the (x, z) plane at y=0 by default. Pass
 
 # Arguments
 - `component`: Field component to plot (e.g. `"Bz"`, `"B"`, `"Ez"`).
+  Use `"re_Ez"`, `"im_Ez"`, or `"abs_Ez"` for the quadratures or magnitude
+  of an RF component. A bare component name displays its real part.
   Defaults to `"B"` for pure magnetic, `"E"` otherwise.
 - `mirror`: For cylindrical only. If `true`, mirrors data to show negative-r side.
   `Br` and `Er` components are sign-flipped on the mirrored side.
@@ -444,14 +453,14 @@ function _fieldmesh_plot_cylindrical(fm::FieldMesh, component::String;
             throw(ArgumentError("mirror=true only available when r=0 is at grid origin"))
         end
         # Sign convention: radial components flip sign, axial/magnitude do not
-        sign = (component in ("Br", "Er")) ? -1 : 1
+        op, name = BeamPhysics._get_operator(component)
+        sign = name in ("Br", "Er") && op !== abs ? -1 : 1
         dat = vcat(sign .* reverse(dat; dims=1), dat)
         r = vcat(-reverse(r), r)
     end
 
-    u = pg_units(component)
     dat_scaled, fac, prefix = nice_array(dat)
-    clabel = mathlabel(component; units=prefix * string(u))
+    clabel = _field_label(component, prefix)
     xlabel = "\$z\$ (m)"
     ylabel = "\$r\$ (m)"
 
@@ -494,9 +503,8 @@ function _fieldmesh_plot_rectangular(fm::FieldMesh, component::String;
         xlabel, ylabel = "\$x\$ (m)", "\$y\$ (m)"
     end
 
-    u = pg_units(component)
     dat_scaled, fac, prefix = nice_array(dat)
-    clabel = mathlabel(component; units=prefix * string(u))
+    clabel = _field_label(component, prefix)
 
     return heatmap(hax, vax, dat_scaled;
         xlabel=xlabel, ylabel=ylabel, colorbar_title=clabel,
@@ -510,6 +518,7 @@ end
 
 For cylindrical geometry, plots `Bz` and/or `Ez` at r=0.
 For rectangular geometry, plots all present field components along z at x=y=0.
+RF profiles show their nonzero real and imaginary quadratures.
 
 # Arguments
 - `kwargs...`: Forwarded to `Plots.plot`
@@ -527,6 +536,26 @@ function fieldmesh_plot_onaxis(fm::FieldMesh; kwargs...)
     end
 end
 
+function _plot_field_profile!(p, z, values, component; rf, color=:auto, label_axis=false)
+    re = real.(values)
+    if rf
+        im_part = imag.(values)
+        factor, prefix = nice_scale_prefix(maximum(abs, values))
+        if any(!iszero, re) || all(iszero, im_part)
+            plot!(p, z, re ./ factor; label=_field_label("re_" * component, prefix), color)
+        end
+        if any(!iszero, im_part)
+            plot!(p, z, im_part ./ factor; label=_field_label("im_" * component, prefix),
+                  color, linestyle=:dash)
+        end
+    else
+        scaled, _, prefix = nice_array(re)
+        plot!(p, z, scaled; label=_field_label(component, prefix), color)
+    end
+    label_axis && ylabel!(p, _field_label(component, prefix))
+    return p
+end
+
 function _fieldmesh_onaxis_cylindrical(fm::FieldMesh; kwargs...)
     z = coord_vec(fm, "z")
     has_Ez = haskey(fm.components, "electricField/z")
@@ -535,26 +564,13 @@ function _fieldmesh_onaxis_cylindrical(fm::FieldMesh; kwargs...)
     p = plot(; xlabel="\$z\$ (m)", kwargs...)
 
     if has_Ez
-        Ez0 = real.(fm["Ez"][1, 1, :])
-        Ez_scaled, fac, prefix = nice_array(Ez0)
-        plot!(p, z, Ez_scaled;
-            label=mathlabel("Ez"; units=prefix * string(pg_units("Ez"))),
-            color=:black)
+        _plot_field_profile!(p, z, fm["Ez"][1, 1, :], "Ez"; rf=!is_static(fm),
+                             color=:black, label_axis=true)
     end
     if has_Bz
-        Bz0 = real.(fm["Bz"][1, 1, :])
-        Bz_scaled, fac, prefix = nice_array(Bz0)
-        if has_Ez
-            p2 = twinx(p)
-            plot!(p2, z, Bz_scaled;
-                label=mathlabel("Bz"; units=prefix * string(pg_units("Bz"))),
-                color=:blue, ylabel=mathlabel("Bz"; units=prefix * string(pg_units("Bz"))))
-        else
-            plot!(p, z, Bz_scaled;
-                label=mathlabel("Bz"; units=prefix * string(pg_units("Bz"))),
-                color=:blue,
-                ylabel=mathlabel("Bz"; units=prefix * string(pg_units("Bz"))))
-        end
+        axis = has_Ez ? twinx(p) : p
+        _plot_field_profile!(axis, z, fm["Bz"][1, 1, :], "Bz"; rf=!is_static(fm),
+                             color=:blue, label_axis=true)
     end
 
     return p
@@ -562,10 +578,6 @@ end
 
 function _fieldmesh_onaxis_rectangular(fm::FieldMesh; kwargs...)
     z = coord_vec(fm, "z")
-    x = coord_vec(fm, "x")
-    y = coord_vec(fm, "y")
-    ix = argmin(abs.(x))
-    iy = argmin(abs.(y))
 
     p = plot(; xlabel="\$z\$ (m)", kwargs...)
 
@@ -574,11 +586,10 @@ function _fieldmesh_onaxis_rectangular(fm::FieldMesh; kwargs...)
 
     for (comp, alias) in field_keys
         haskey(fm.components, comp) || continue
-        fdat = real.(fm[alias][ix, iy, :])
+        field = BeamPhysics.interpolator(fm, alias)
+        fdat = [field(0, 0, zi) for zi in z]
         all(iszero, fdat) && continue
-        f_scaled, fac, prefix = nice_array(fdat)
-        plot!(p, z, f_scaled;
-            label=mathlabel(alias; units=prefix * string(pg_units(alias))))
+        _plot_field_profile!(p, z, fdat, alias; rf=!is_static(fm))
     end
 
     return p

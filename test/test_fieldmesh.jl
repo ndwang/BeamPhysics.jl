@@ -225,3 +225,33 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         end
     end
 end
+
+@testset "On-axis profiles and RF quadratures" begin
+    x, y, z = (-1, 1), (-1, 1), 0:2
+    field = [10 + 3xi + 2yi + zi for xi in x, yi in y, zi in z]
+    fm = FieldMesh("rectangular", ("x", "y", "z"), (-1., -1., 0.), (2., 2., 1.),
+                   size(field), "center", 1, 1e9, 0., 1.,
+                   Dict("electricField/x" => im .* field, "magneticField/z" => (1+2im) .* field))
+    profile = fieldmesh_plot_onaxis(fm)
+    @test length(profile.series_list) == 3
+    ex_im, bz_re, bz_im = profile.series_list
+    @test ex_im[:y] ≈ 10 .+ z
+    @test bz_re[:y] ≈ 10 .+ z
+    @test bz_im[:y] ≈ 2 .* (10 .+ z)
+    @test startswith(ex_im[:label], "Im ") && occursin("V/m", ex_im[:label])
+    @test startswith(bz_re[:label], "Re ") && startswith(bz_im[:label], "Im ")
+
+    for (key, op) in (("re_Bz", real), ("im_Bz", imag), ("abs_Bz", abs))
+        cut = fieldmesh_plot(fm; component=key, z=1)
+        @test cut.series_list[1][:z].surf ≈ [op((1+2im)*(11 + 3xi + 2yi)) for yi in y, xi in x]
+    end
+
+    cylindrical = FieldMesh("cylindrical", ("r", "theta", "z"), (0., 0., 0.), (1., 0., 1.),
+                            (2, 1, 3), "center", 1, 1e9, 0., 1.,
+                            Dict("electricField/z" => [im*(1+r+zi) for r in 0:1, t in 1:1, zi in z]))
+    cyl_series = only(fieldmesh_plot_onaxis(cylindrical).series_list)
+    @test cyl_series[:y] ≈ 1 .+ z
+    @test startswith(cyl_series[:label], "Im ")
+    @test fieldmesh_plot(cylindrical; component="im_Ez").series_list[1][:z].surf ≈
+          [1+r+zi for r in 0:1, zi in z]
+end
