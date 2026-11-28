@@ -181,12 +181,18 @@ function Base.:*(a::PMDUnit, b::PMDUnit)
 end
 
 function Base.:/(a::PMDUnit, b::PMDUnit)
-    if a.symbol == b.symbol && a.scale == b.scale
-        return PMDUnit("", 1.0, ntuple(_ -> 0.0, 7))
+    scale = a.scale / b.scale
+    dims = a.dims .- b.dims
+    symbol = if a == b
+        ""
+    elseif is_identity(b)
+        a.symbol
+    else
+        numerator = isempty(a.symbol) ? "1" : a.symbol
+        denominator = occursin(r"[*/⋅·]", b.symbol) ? "($(b.symbol))" : b.symbol
+        "$numerator/$denominator"
     end
-    is_identity(b) && return a
-    sym = "$(a.symbol)/$(b.symbol)"
-    return PMDUnit(sym, a.scale / b.scale, NTuple{7,Float64}(a.dims .- b.dims))
+    return PMDUnit(symbol, scale, dims)
 end
 
 # ── Named-unit registry ────────────────────────────────────────────────────
@@ -288,7 +294,7 @@ end
 
 function _parse_single_unit(token::String)
     # Handle power notation: base^exp
-    m = match(r"^(.+)\^(.+)$", token)
+    m = match(r"^(.+)\^(\([^()]*\)|[^()]+)$", token)
     if m !== nothing
         base  = String(m[1])
         power = _parse_power(String(m[2]))
@@ -305,6 +311,9 @@ function _parse_power(s::String)
 end
 
 function _lookup_unit(name::String)
+    if startswith(name, '(') && endswith(name, ')')
+        return PMDUnit(String(chop(name; head=1, tail=1)))
+    end
     haskey(KNOWN_UNIT, name) || error("Unknown unit: \"$name\"")
     return KNOWN_UNIT[name]
 end

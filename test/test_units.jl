@@ -137,6 +137,16 @@ end
 
     # Division by identity
     @test (m / KNOWN_UNIT[""]) === m
+
+    # HDF5 records with no unitSymbol share the label "unknown".
+    length_unit = PMDUnit("unknown", 1.0, "length")
+    time_unit = PMDUnit("unknown", 1.0, "time")
+    @test length_unit / time_unit == PMDUnit("unknown/unknown", 1.0, "velocity")
+    @test m / vel == PMDUnit("m/(m/s)", 1.0, "time")
+    @test PMDUnit(string(m / vel)) == m / vel
+    @test PMDUnit(string(m / (s * s))) == m / (s * s)
+    @test KNOWN_UNIT[""] / s == PMDUnit("1/s")
+    @test KNOWN_UNIT["eV"] / KNOWN_UNIT["C"] == PMDUnit("eV/C", KNOWN_UNIT["eV"].scale, "electric_potential")
 end
 
 @testset "power_unit" begin
