@@ -1,8 +1,10 @@
 # BeamPhysics.jl
 
-A Julia package for beam physics analysis following the
-[openPMD-beamphysics](https://github.com/openPMD/openPMD-standard/blob/upcoming-2.0.0/EXT_BeamPhysics.md) standard.
-Inspired by the Python package [openPMD-beamphysics](https://github.com/ChristopherMayes/openPMD-beamphysics).
+[![Read the documentation](https://img.shields.io/badge/Read_the_documentation-4063D8?style=for-the-badge)](https://ndwang.github.io/BeamPhysics.jl/)
+
+BeamPhysics.jl is a Julia package for analyzing charged-particle beams and electromagnetic field maps in the openPMD standard, beamphysics extension.
+
+[openPMD BeamPhysics extension specification](https://github.com/openPMD/openPMD-standard/blob/upcoming-2.0.0/EXT_BeamPhysics.md)
 
 ## Installation
 
@@ -16,16 +18,10 @@ Pkg.add("BeamPhysics")
 ```julia
 using BeamPhysics
 
-pg = ParticleGroup("particles.h5")
-std(pg, :x)       # weighted std of x [m]
-norm_emit_x(pg)   # normalized x emittance [m]
-twiss(pg; plane=:x)
+pg = ParticleGroup("path/to/particles.h5")
+std(pg, :x)      # charge-weighted RMS beam size in x [m]
+norm_emit_x(pg)  # normalized horizontal emittance [m]
 
-fm = FieldMesh("solenoid.h5")
+fm = FieldMesh("path/to/fieldmap.h5")
 fm.Bz             # longitudinal magnetic field on the grid [T]
 ```
-
-## Documentation
-
-Full documentation including API reference is available at
-https://ndwang.github.io/BeamPhysics.jl.

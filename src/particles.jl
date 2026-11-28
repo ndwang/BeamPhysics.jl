@@ -4,7 +4,7 @@ abstract type AbstractParticleGroup{T<:Real, I<:Integer} end
     ParticleGroup{T, I, AT, AI, AId}
 
 Stores the particle columns of a single-species beam.
-Array fields are parameterized so they can be `Vector`, `CuArray`, or any `AbstractVector`.
+Particle columns are stored as `AbstractVector` subtypes.
 
 # Fields
 - `x,y,z::AT`: positions in [m]

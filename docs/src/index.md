@@ -1,7 +1,8 @@
 # BeamPhysics.jl
 
-A Julia package for working with beam physics data in the
-[openPMD-beamphysics](https://github.com/openPMD/openPMD-standard/blob/upcoming-2.0.0/EXT_BeamPhysics.md) format.
+BeamPhysics.jl is a Julia package for analyzing charged-particle beams and electromagnetic field maps in the openPMD standard, beamphysics extension.
+
+[openPMD BeamPhysics extension specification](https://github.com/openPMD/openPMD-standard/blob/upcoming-2.0.0/EXT_BeamPhysics.md)
 
 ## Features
 
@@ -24,7 +25,7 @@ Pkg.add("BeamPhysics")
 using BeamPhysics
 
 # Load particles from an openPMD HDF5 file
-pg = ParticleGroup("particles.h5")
+pg = ParticleGroup(joinpath(pkgdir(BeamPhysics), "test", "initial_particles.h5"))
 
 # Access particle properties
 pg.x           # x positions [m]
@@ -32,7 +33,7 @@ std(pg, :x)     # std of x [m]
 norm_emit_x(pg) # normalized emittance [m]
 
 # Load a field mesh
-fm = FieldMesh("solenoid.h5")
+fm = FieldMesh(joinpath(pkgdir(BeamPhysics), "test", "lcls2_solenoid_fieldmesh.h5"))
 fm.Bz             # longitudinal magnetic field on the grid [T]
 coord_vec(fm, :z) # z coordinate vector [m]
 ```

@@ -12,21 +12,23 @@ using Plots
 
 ## Particle Plots
 
+The Quick Start bunch has a common z, so its longitudinal distribution is plotted against time.
+
 ```julia
 # 1D density histogram of a particle property
 density_plot(pg, :x)
-density_plot(pg, :z; bins=100)
+density_plot(pg, :t; bins=100)
 
 # Marginal plot: 2D density with 1D projections on margins
 marginal_plot(pg, :x, :y)
-marginal_plot(pg, :z, energy)
+marginal_plot(pg, :t, energy)
 
 # Slice plot: statistics along slices
 slice_plot(pg, norm_emit_x, norm_emit_y)
-slice_plot(pg, norm_emit_x; slice_key=:z)
+slice_plot(pg, norm_emit_x; slice_key=:t)
 
 # Combined density + slice
-density_and_slice_plot(pg, :z, :x)
+density_and_slice_plot(pg, :t, :x)
 ```
 
 See [`density_plot`](@ref), [`marginal_plot`](@ref), [`slice_plot`](@ref),

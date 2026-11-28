@@ -3,8 +3,7 @@
 ## Overview
 
 `ParticleGroup` is the primary data structure for beam particles. It stores particle
-coordinates, momenta, time, status, weight, and species. Array fields are parameterized
-so they can be `Vector`, `CuArray`, or any `AbstractVector`, enabling GPU computation.
+coordinates, momenta, time, status, weight, and species.
 
 See [`ParticleGroup`](@ref) in the [API Reference](@ref api) for the full type definition.
 
@@ -20,7 +19,6 @@ pg = ParticleGroup("particles.h5")
 pg = single_particle(z=0.01, pz=1e6)
 
 # Construct directly
-using AtomicAndPhysicalConstants: Species
 pg = ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species=Species("electron"))
 ```
 
@@ -51,20 +49,51 @@ pg3 = pg1 + pg2  # concatenate two ParticleGroups of the same species
 
 ## In-place Operations
 
-```julia
-drift!(pg, 1e-9)       # drift by 1 ns
-drift_to_z!(pg, 0.5)   # drift all particles to z = 0.5 m
-drift_to_t!(pg)        # drift all particles to their mean time
-set_charge!(pg, 1e-12) # rescale weights to total charge = 1 pC
-```
+The drift functions update each particle's position and time using its current velocity.
+
+| Call | Effect |
+|---|---|
+| `drift!(pg, dt)` | Drift by a time interval in seconds. Pass a scalar for all particles or a vector with one interval per particle. Negative intervals drift backward. |
+| `drift_to_z!(pg, z)` | Drift to the plane at `z` in metres. |
+| `drift_to_z!(pg)` | Drift to the charge-weighted mean `z` before the drift. |
+| `drift_to_t!(pg, t)` | Drift to the time `t` in seconds. |
+| `drift_to_t!(pg)` | Drift to the charge-weighted mean `t` before the drift. |
+
+`set_charge!(pg, q)` rescales the particle weights proportionally to give the group
+a total charge of `q` coulombs. The argument must be positive. For example,
+`set_charge!(pg, 1e-12)` sets the total charge to 1 pC.
 
 ## Splitting
+
+`slices` sorts particles by the selected column and splits them into `n` groups
+with roughly equal particle counts. When `by` is omitted, it sorts by z for a
+common-time bunch and by t otherwise.
+
+The result is a `Vector{<:ParticleGroupView}` of length `n`. Each slice shares
+its particle data with the parent group.
 
 ```julia
 groups = slices(pg; by=:z, n=100)
 ```
 
-## Derived Properties
+## Stored Quantities
+
+Each column has one entry per particle.
+
+| Property | Meaning | Units |
+|---|---|---|
+| `pg.x`, `pg.y`, `pg.z` | Position components | m |
+| `pg.px`, `pg.py`, `pg.pz` | Momentum components | eV/c |
+| `pg.t` | Time | s |
+| `pg.status` | Particle status code (1 indicates a live particle) | — |
+| `pg.weight` | Macroparticle charge | C |
+| `pg.id` | Particle identifier | — |
+
+`pg.species` applies to the whole group. Optional per-particle columns are stored in
+`pg.extra`. Use `keys(pg.extra)` to see which are present. See the [I/O guide](io.md)
+for the optional columns supported by HDF5.
+
+## Derived Quantities
 
 Use the following functions to calculate derived quantities.
 

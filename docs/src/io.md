@@ -39,7 +39,7 @@ stored time without its offset.
 ## Writing Particles
 
 ```julia
-write_particle_group("output.h5", pg)
+write_particle_group("particles_out.h5", pg)
 # If pg.t holds raw times, pass t_offset in seconds to write a separate timeOffset record.
 ```
 
@@ -81,7 +81,7 @@ on access. Additional file attributes are kept in `fm.metadata`.
 ## Writing Field Meshes
 
 ```julia
-write_fieldmesh("output.h5", fm)
+write_fieldmesh("fields_out.h5", fm)
 ```
 
 [`write_fieldmesh`](@ref) writes each component's unscaled samples and its own unit
