@@ -78,14 +78,13 @@ rmin
 rmax
 thetamin
 thetamax
-scale
-phase
-factor
 frequency
 is_static
 is_pure_electric
 is_pure_magnetic
-scaled_component
+field_magnitude
+interpolator
+interpolate
 set_min!
 set_max!
 write_fieldmesh

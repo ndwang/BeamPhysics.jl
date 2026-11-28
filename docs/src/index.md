@@ -33,8 +33,8 @@ norm_emit_x(pg) # normalized emittance [m]
 
 # Load a field mesh
 fm = FieldMesh("solenoid.h5")
-fm["Bz"]          # scaled Bz component
-coord_vec(fm, "z") # z coordinate vector
+fm.Bz             # longitudinal magnetic field on the grid [T]
+coord_vec(fm, :z) # z coordinate vector [m]
 ```
 
 ## Contents

@@ -36,22 +36,23 @@ See [`density_plot`](@ref), [`marginal_plot`](@ref), [`slice_plot`](@ref),
 
 ```julia
 # 2D field plot (slice through the mesh)
-fieldmesh_plot(fm)                        # auto-detects "B" or "E"
-fieldmesh_plot(fm; component="Bz")        # specific component
-fieldmesh_plot(fm; component="Bz", mirror=true)  # mirror for cylindrical
+fieldmesh_plot(fm)                             # auto-detects :B or :E
+fieldmesh_plot(fm; component=:Bz)              # specific component
+fieldmesh_plot(fm; component=:Bz, mirror=true) # mirror for cylindrical
 
 # On-axis field profile
 fieldmesh_plot_onaxis(fm)
 ```
 
-On a rectangular mesh, `fieldmesh_plot(fm; component="Bz", z=0.4)` shows
+On a rectangular mesh, `fieldmesh_plot(fm; component=:Bz, z=0.4)` shows
 x horizontally and y vertically. The field is linearly interpolated at
 the requested z coordinate in metres. Use `x=value` or `y=value` for a
 longitudinal slice. The default slice is at y = 0.
 
-For an RF field, choose `component="im_Ez"` to display the imaginary part
-or `component="abs_Ez"` for the magnitude. The bare name `"Ez"` displays the
-real part. On-axis RF profiles label the real and imaginary traces separately.
+For an RF field, `fieldmesh_plot(fm; component=:Ez, transform=imag)` displays
+the imaginary part. Use `transform=abs` for the component amplitude. The default
+is `real`. The transform is applied at the grid points before interpolating the slice.
+On-axis RF profiles label the real and imaginary traces separately.
 On rectangular meshes these profiles interpolate the field at x = y = 0,
 including when the axis lies between grid points.
 

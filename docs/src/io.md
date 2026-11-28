@@ -52,8 +52,10 @@ end
 See [`FieldMesh`](@ref), [`field_paths`](@ref).
 
 Fields load in (x, y, z) or (r, theta, z) order, including files with a reversed
-axis layout or the legacy Fortran order marker. Static fields are real; RF fields
-retain their complex values. Additional field attributes are retained in `fm.metadata`.
+axis layout or the legacy Fortran order marker. The reader applies the file's
+`fieldScale` and `RFphase` to the samples. For example, `fm.Bz` holds the
+physical longitudinal magnetic field in tesla. RF components can be complex.
+The original scale, phase, and additional file attributes are kept in `fm.metadata`.
 
 ## Writing Field Meshes
 
@@ -61,7 +63,8 @@ retain their complex values. Additional field attributes are retained in `fm.met
 write_fieldmesh("output.h5", fm)
 ```
 
-See [`write_fieldmesh`](@ref).
+[`write_fieldmesh`](@ref) writes the current physical field arrays using the openPMD
+component names and file scale and phase, so edits to a component survive a round trip.
 
 ## Low-Level HDF5 API
 

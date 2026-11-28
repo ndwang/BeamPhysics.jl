@@ -22,7 +22,7 @@ norm_emit_x(pg)   # normalized x emittance [m]
 twiss(pg; plane=:x)
 
 fm = FieldMesh("solenoid.h5")
-fm["Bz"]            # scaled Bz component
+fm.Bz             # longitudinal magnetic field on the grid [T]
 ```
 
 ## Documentation

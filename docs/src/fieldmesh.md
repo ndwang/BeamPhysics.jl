@@ -3,8 +3,8 @@
 ## Overview
 
 `FieldMesh` stores gridded electromagnetic field data in openPMD-beamphysics format.
-It supports both rectangular (`x, y, z`) and cylindrical (`r, theta, z`) geometries,
-static and RF fields, and complex field factors.
+It supports both rectangular (`x, y, z`) and cylindrical (`r, theta, z`) geometries
+and both static and RF fields.
 
 See [`FieldMesh`](@ref) in the [API Reference](@ref api) for full details.
 
@@ -24,33 +24,29 @@ See [`FieldMesh`](@ref), [`write_fieldmesh`](@ref).
 
 ## Accessing Fields and Coordinates
 
-Field components and coordinates are accessed via string indexing:
+Field components are physical arrays in the mesh's native basis. The file's
+scale and RF phase are already applied. Each array has shape `fm.grid_size`
+and dimension order `fm.axis_labels`.
+
+| Mesh geometry | Electric field [V/m] | Magnetic field [T] |
+|---|---|---|
+| Rectangular | `fm.Ex`, `fm.Ey`, `fm.Ez` | `fm.Bx`, `fm.By`, `fm.Bz` |
+| Cylindrical | `fm.Er`, `fm.Etheta`, `fm.Ez` | `fm.Br`, `fm.Btheta`, `fm.Bz` |
+
+A native component omitted from the file starts at zero. You can edit any
+native component in place, for example `fm.Bz .*= 2`.
 
 ```julia
-fm["Bz"]      # Bz component, scaled by field_scale * exp(i*phase)
-fm["Er"]      # Er component (cylindrical only)
-fm["z"]       # z coordinate vector
-fm["r"]       # r coordinate vector (cylindrical)
-
-# Operator prefixes (useful for complex RF fields)
-fm["re_Bz"]   # real part of Bz
-fm["im_Bz"]   # imaginary part of Bz
-fm["abs_Ez"]  # |Ez|
-
-# Field magnitudes
-fm["B"]       # |B| across all components
-fm["E"]       # |E| across all components
+fm.Bz                    # longitudinal magnetic field [T]
+coord_vec(fm, :z)        # z coordinates [m]
+real.(fm.Ez)             # real part of the longitudinal electric field
+imag.(fm.Ez)             # imaginary part
+abs.(fm.Ez)              # longitudinal component amplitude
+field_magnitude(fm, :E)  # electric field magnitude across all three components
+field_magnitude(fm, :B)  # magnetic field magnitude across all three components
 ```
 
-Bare record-name indexing such as `fm["magneticField/z"]` previously returned
-the scaled field. It now returns the unscaled component and is deprecated,
-matching Python `beamphysics`. Use `fm.components["magneticField/z"]` to
-access the unscaled array and `fm["Bz"]` to apply the field scale and phase.
-
-The underlying functions are [`coord_vec`](@ref) and [`scaled_component`](@ref);
-use [`coord_vecs`](@ref) to retrieve all three coordinate vectors at once.
-
-See [`coord_vec`](@ref), [`coord_vecs`](@ref), [`scaled_component`](@ref).
+Use [`coord_vecs`](@ref) to retrieve all three coordinate vectors in axis order.
 
 ## Grid Information
 
@@ -62,11 +58,11 @@ convention. When that offset term is nonzero, account for it when comparing
 sample locations with Bmad. See the [Bmad manual, §§5.16.4 and 43.2](https://www.classe.cornell.edu/bmad/bmad-manual-2026-03-09.pdf).
 
 ```julia
-mins(fm)            # grid minimum coordinates
-maxs(fm)            # grid maximum coordinates
-deltas(fm)          # grid spacing per axis
-fm.grid_size        # number of grid points per axis
-axis_index(fm, "z") # 1-based index of the "z" axis
+fm.grid_origin     # coordinates of the first grid point
+fm.grid_spacing    # grid spacing per axis
+fm.grid_size       # number of grid points per axis
+maxs(fm)           # grid maximum coordinates
+axis_index(fm, :z) # 1-based index of the z axis
 
 # Per-axis helpers (rectangular)
 xmin(fm); xmax(fm); dx(fm)
@@ -88,10 +84,10 @@ rotate the field into Cartesian coordinates. For the LCLS-II solenoid,
 the azimuthal magnetic component is zero, so only `Br` and `Bz` enter:
 
 ```julia
-fm = FieldMesh("lcls2_solenoid_fieldmesh.h5")
-br = interpolator(fm, "Br")
-bz = interpolator(fm, "Bz")
-theta_grid = only(fm["theta"])
+fm = FieldMesh(joinpath(pkgdir(BeamPhysics), "test", "lcls2_solenoid_fieldmesh.h5"))
+br = interpolator(fm, :Br)
+bz = interpolator(fm, :Bz)
+theta_grid = only(coord_vec(fm, :theta))
 
 x, y, z = 0.012, 0.016, -0.04  # particle position [m]
 radius = hypot(x, y)
@@ -102,29 +98,29 @@ By = radial_field * sin(azimuth)
 Bz = bz(radius, theta_grid, z)
 ```
 
-The component keys select fields in the map's native basis. Looking up
-`fm["Bx"]` on a cylindrical mesh does not perform this rotation.
+For a single sample use `interpolate(fm, :Bz, (radius, theta_grid, z))`.
+Both [`interpolator`](@ref) and [`interpolate`](@ref) also accept grid arrays.
+For a complex RF map, `interpolate(fm, abs.(fm.Ez), point)` interpolates the
+amplitude of the grid samples. Use `abs(interpolate(fm, :Ez, point))` for the
+amplitude of the interpolated complex field.
 
 ## Field Properties
 
 ```julia
 is_static(fm)        # true if harmonic == 0
-is_pure_magnetic(fm) # true if no electric components
-is_pure_electric(fm) # true if no magnetic components
-scale(fm)            # field_scale factor
-phase(fm)            # phase in radians: -2π * RFphase
-factor(fm)           # complex factor: scale * exp(i*phase)
+is_pure_magnetic(fm) # true if every electric component is zero or absent
+is_pure_electric(fm) # true if every magnetic component is zero or absent
 frequency(fm)        # oscillation frequency [Hz]
 ```
 
 See [`is_static`](@ref), [`is_pure_magnetic`](@ref), [`is_pure_electric`](@ref),
-[`scale`](@ref), [`phase`](@ref), [`factor`](@ref), [`frequency`](@ref).
+[`frequency`](@ref).
 
 ## Grid Modification
 
 ```julia
-set_min!(fm, "z", -0.1)  # shift z origin to -0.1 m
-set_max!(fm, "z",  0.1)  # shift z origin so max = 0.1 m
+set_min!(fm, :z, -0.1)  # shift z origin to -0.1 m
+set_max!(fm, :z,  0.1)  # shift z origin so max = 0.1 m
 ```
 
 See [`set_min!`](@ref), [`set_max!`](@ref).
