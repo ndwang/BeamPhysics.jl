@@ -437,6 +437,26 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         @test d["charge"]    == charge(pg)
     end
 
+    @testset "validate time offsets before writing" begin
+        pg = ParticleGroup(joinpath(@__DIR__, "fixtures", "openpmd_python_particles.h5"))
+        mktempdir() do dir
+            file = joinpath(dir, "particles.h5")
+            write_particle_group(file, pg[1])
+            original = read(file)
+            for offsets in ([1e-9, 2e-9], zeros(2))
+                @test_throws DimensionMismatch write_particle_group(file, pg; t_offset=offsets)
+                @test read(file) == original
+            end
+            h5open(file, "r+") do h5
+                @test_throws DimensionMismatch write_pmd_bunch(h5, particle_data_dict(pg);
+                                                              name="new_bunch", t_offset=zeros(2))
+                @test !haskey(h5, "new_bunch")
+            end
+            write_particle_group(file, pg; t_offset=1e-9)
+            @test ParticleGroup(file).t ≈ pg.t .+ 1e-9
+        end
+    end
+
     @testset "write_pmd_bunch round-trip" begin
         pg = single_particle(x=2e-3, px=3e5, pz=2e9, weight=5e-16)
         tmpfile = tempname() * ".h5"

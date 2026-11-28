@@ -64,6 +64,15 @@ function write_component_data(h5, name, data; unit=nothing, reverse_axes=true)
     return g
 end
 
+function _time_offsets(t_offset, n)
+    if t_offset isa Number
+        return iszero(t_offset) ? nothing : fill(Float64(t_offset), n)
+    end
+    t_offset isa AbstractVector && length(t_offset) == n ||
+        throw(DimensionMismatch("time offset must be a scalar or a vector with one value per particle"))
+    return all(iszero, t_offset) ? nothing : Float64.(t_offset)
+end
+
 """
     write_pmd_bunch(h5, data::Dict; name=nothing, t_offset=0.0)
 
@@ -81,6 +90,11 @@ Nonzero t_offset (a scalar or one value per particle, in seconds) is written as 
 See inverse routine: `ParticleGroup(h5)`
 """
 function write_pmd_bunch(h5, data::Dict; name=nothing, t_offset=0.0)
+    offsets = _time_offsets(t_offset, data["n_particle"])
+    return _write_pmd_bunch(h5, data, name, offsets)
+end
+
+function _write_pmd_bunch(h5, data, name, offsets)
     g = isnothing(name) ? h5 : create_group(h5, name)
 
     # Create species subgroup
@@ -112,10 +126,7 @@ function write_pmd_bunch(h5, data::Dict; name=nothing, t_offset=0.0)
         end
     end
 
-    if !all(iszero, t_offset)
-        offsets = t_offset isa Number ? fill(Float64(t_offset), data["n_particle"]) : Float64.(t_offset)
-        size(offsets) == (data["n_particle"],) ||
-            throw(DimensionMismatch("time offset must contain one value per particle"))
+    if !isnothing(offsets)
         write_component_data(g, "timeOffset", offsets; unit=pg_units("t"))
     end
 end
@@ -191,9 +202,11 @@ Write a ParticleGroup or ParticleGroupView to an HDF5 file in openPMD format.
 This is the inverse of `ParticleGroup(filename::AbstractString)`.
 """
 function write_particle_group(filename::AbstractString, pg::AbstractParticleGroup; t_offset=0.0)
+    offsets = _time_offsets(t_offset, length(pg))
+    data = particle_data_dict(pg)
     h5open(filename, "w") do h5
         pmd_init(h5)
         g = create_group(h5, "data/1")
-        write_pmd_bunch(g, particle_data_dict(pg); t_offset)
+        _write_pmd_bunch(g, data, nothing, offsets)
     end
 end
