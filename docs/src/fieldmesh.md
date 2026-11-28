@@ -24,17 +24,16 @@ See [`FieldMesh`](@ref), [`write_fieldmesh`](@ref).
 
 ## Accessing Fields and Coordinates
 
-Field components are physical arrays in the mesh's native basis. The file's
-scale and RF phase are already applied. Each array has shape `fm.grid_size`
-and dimension order `fm.axis_labels`.
+Field properties such as `fm.Ez` give a writable view of the physical samples
+in the mesh's native basis. Each view has shape `fm.grid_size` and dimension
+order `fm.axis_labels`.
 
 | Mesh geometry | Electric field [V/m] | Magnetic field [T] |
 |---|---|---|
 | Rectangular | `fm.Ex`, `fm.Ey`, `fm.Ez` | `fm.Bx`, `fm.By`, `fm.Bz` |
 | Cylindrical | `fm.Er`, `fm.Etheta`, `fm.Ez` | `fm.Br`, `fm.Btheta`, `fm.Bz` |
 
-A native component omitted from the file starts at zero. You can edit any
-native component in place, for example `fm.Bz .*= 2`.
+A native component omitted from the file starts at zero.
 
 ```julia
 fm.Bz                    # longitudinal magnetic field [T]
@@ -47,6 +46,33 @@ field_magnitude(fm, :B)  # magnetic field magnitude across all three components
 ```
 
 Use [`coord_vecs`](@ref) to retrieve all three coordinate vectors in axis order.
+
+## Scaling an RF field map
+
+`fm.field_scale` multiplies every electric and magnetic component.
+For a cavity that gives 8 MV at its current setting, multiplying the scale
+by 10/8 gives 10 MV at the same phase.
+
+```julia
+reference_scale = fm.field_scale
+fm.field_scale = reference_scale * (10.0 / 8.0)
+```
+
+To change the RF phase, set `fm.rf_phase` in turns. The phasor convention is
+`exp(-2π * im * fm.rf_phase)`. For a local profile correction, edit the physical
+component directly. For example, `fm.Ez[1, 1, k] *= 0.98` reduces the amplitude
+of one sample by 2% at the current scale and phase.
+
+A view of an unphased static map has real elements. If you then apply a phase
+to that map, the retained view gives the real part. Access the component again
+to get its full complex values.
+
+For a component present in the file, `fm.components[:Ez]` holds the unscaled
+profile in its original units, and `fm.component_units[:Ez].scale` gives its
+conversion factor to V/m. A physical edit updates the corresponding unscaled
+sample. Changing `fm.field_scale` or `fm.rf_phase` leaves the profile intact.
+At zero scale all physical samples are zero. To edit the profile then, use
+`fm.components[:Ez]` directly or restore a nonzero scale before editing `fm.Ez`.
 
 ## Grid Information
 

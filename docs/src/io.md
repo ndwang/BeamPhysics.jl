@@ -52,10 +52,12 @@ end
 See [`FieldMesh`](@ref), [`field_paths`](@ref).
 
 Fields load in (x, y, z) or (r, theta, z) order, including files with a reversed
-axis layout or the legacy Fortran order marker. The reader applies the file's
-`fieldScale` and `RFphase` to the samples. For example, `fm.Bz` holds the
-physical longitudinal magnetic field in tesla. RF components can be complex.
-The original scale, phase, and additional file attributes are kept in `fm.metadata`.
+axis layout or the legacy Fortran order marker. The reader retains the unscaled
+samples in `fm.components` and each component's openPMD unit in `fm.component_units`.
+Each unit has its own `unitSI` conversion factor. The mesh-wide `fieldScale`
+and `RFphase` attributes are available as `fm.field_scale` and `fm.rf_phase`.
+Physical properties such as `fm.Bz` apply the component unit, scale, and phase
+on access. Additional file attributes are kept in `fm.metadata`.
 
 ## Writing Field Meshes
 
@@ -63,8 +65,9 @@ The original scale, phase, and additional file attributes are kept in `fm.metada
 write_fieldmesh("output.h5", fm)
 ```
 
-[`write_fieldmesh`](@ref) writes the current physical field arrays using the openPMD
-component names and file scale and phase, so edits to a component survive a round trip.
+[`write_fieldmesh`](@ref) writes each component's unscaled samples and its own unit
+attributes, together with the current mesh scale and phase. A map written with
+zero `fieldScale` retains its underlying profile when reloaded.
 
 ## Low-Level HDF5 API
 
