@@ -398,8 +398,8 @@ end
 For cylindrical geometry, plots the (r, z) plane at theta=0. Z is on the x-axis,
 r on the y-axis (convention for accelerators).
 
-For rectangular geometry, plots the (x, z) plane at y=0 by default. Pass `y=value`
-to select a different slice value.
+For rectangular geometry, plots the (x, z) plane at y=0 by default. Pass
+`x=value`, `y=value`, or `z=value` to interpolate at a coordinate within the grid.
 
 # Arguments
 - `component`: Field component to plot (e.g. `"Bz"`, `"B"`, `"Ez"`).
@@ -478,21 +478,18 @@ function _fieldmesh_plot_rectangular(fm::FieldMesh, component::String;
     y = coord_vec(fm, "y")
     z = coord_vec(fm, "z")
 
-    dat3d = real.(fm[component])   # (nx, ny, nz)
+    field = BeamPhysics.interpolator(fm, component)
 
     if slice_axis == "y"
-        iy = argmin(abs.(y .- slice_val))
-        dat = dat3d[:, iy, :]      # (nx, nz)
+        dat = [real(field(xi, slice_val, zi)) for xi in x, zi in z]
         hax, vax = z, x
         xlabel, ylabel = "\$z\$ (m)", "\$x\$ (m)"
     elseif slice_axis == "x"
-        ix = argmin(abs.(x .- slice_val))
-        dat = dat3d[ix, :, :]      # (ny, nz)
+        dat = [real(field(slice_val, yi, zi)) for yi in y, zi in z]
         hax, vax = z, y
         xlabel, ylabel = "\$z\$ (m)", "\$y\$ (m)"
     else  # z
-        iz = argmin(abs.(z .- slice_val))
-        dat = dat3d[:, :, iz]      # (nx, ny)
+        dat = [real(field(xi, yi, slice_val)) for yi in y, xi in x]
         hax, vax = x, y
         xlabel, ylabel = "\$x\$ (m)", "\$y\$ (m)"
     end

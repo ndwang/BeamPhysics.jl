@@ -44,4 +44,9 @@ fieldmesh_plot(fm; component="Bz", mirror=true)  # mirror for cylindrical
 fieldmesh_plot_onaxis(fm)
 ```
 
+On a rectangular mesh, `fieldmesh_plot(fm; component="Bz", z=0.4)` shows
+x horizontally and y vertically. The field is linearly interpolated at
+the requested z coordinate in metres. Use `x=value` or `y=value` for a
+longitudinal slice. The default slice is at y = 0.
+
 See [`fieldmesh_plot`](@ref), [`fieldmesh_plot_onaxis`](@ref).

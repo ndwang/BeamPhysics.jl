@@ -1,5 +1,6 @@
 using BeamPhysics
 using Test
+import Plots
 
 const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
 
@@ -35,6 +36,20 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         @test fm.ele_anchor_pt == "center"
         @test fm.harmonic == 0
         @test fm.field_scale == 0.06
+    end
+
+    @testset "Rectangular slice plots" begin
+        x, y, z = 0:2, -1:2, 0:1
+        bz = [xi + 10zi for xi in x, yi in y, zi in z]
+        fm = FieldMesh("rectangular", ("x", "y", "z"), (0.0, -1.0, 0.0),
+                       (1.0, 1.0, 1.0), size(bz), "center", 0, 0.0, 0.0, 1.0,
+                       Dict("magneticField/z" => bz))
+
+        xy = fieldmesh_plot(fm; component="Bz", z=0.4)
+        @test xy.series_list[1][:z].surf ≈ [xi + 4 for yi in y, xi in x]
+
+        yz = fieldmesh_plot(fm; component="Bz", x=0.25)
+        @test yz.series_list[1][:z].surf ≈ [0.25 + 10zi for yi in y, zi in z]
     end
 
     @testset "Grid accessors" begin
