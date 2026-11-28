@@ -49,6 +49,13 @@ See [`coord_vec`](@ref), [`coord_vecs`](@ref), [`scaled_component`](@ref).
 
 ## Grid Information
 
+As in Python `beamphysics`, coordinate vectors start at `gridOriginOffset` and
+advance by `gridSpacing`. The reader preserves `gridLowerBound` in `fm.metadata`.
+For a rectangular Bmad map, the first sample relative to the element anchor is
+`gridOriginOffset + gridLowerBound .* gridSpacing` under Bmad's indexing
+convention. When that offset term is nonzero, account for it when comparing
+sample locations with Bmad. See the [Bmad manual, §§5.16.4 and 43.2](https://www.classe.cornell.edu/bmad/bmad-manual-2026-03-09.pdf).
+
 ```julia
 mins(fm)            # grid minimum coordinates
 maxs(fm)            # grid maximum coordinates
