@@ -349,25 +349,15 @@ end
 Compute field magnitude for `"E"` or `"B"`.
 """
 function _field_magnitude(fm::FieldMesh, prefix::String)
-    if fm.geometry == "cylindrical"
-        r_key = prefix == "E" ? "Er" : "Br"
-        z_key = prefix == "E" ? "Ez" : "Bz"
-        t_key = prefix == "E" ? "Etheta" : "Btheta"
-        fr = scaled_component(fm, r_key)
-        fz = scaled_component(fm, z_key)
-        ft = scaled_component(fm, t_key)
-        return @. sqrt(abs(fr)^2 + abs(fz)^2 + abs(ft)^2)
+    axes = if fm.geometry == "cylindrical"
+        ("r", "z", "theta")
     elseif fm.geometry == "rectangular"
-        x_key = prefix == "E" ? "Ex" : "Bx"
-        y_key = prefix == "E" ? "Ey" : "By"
-        z_key = prefix == "E" ? "Ez" : "Bz"
-        fx = scaled_component(fm, x_key)
-        fy = scaled_component(fm, y_key)
-        fz = scaled_component(fm, z_key)
-        return @. sqrt(abs(fx)^2 + abs(fy)^2 + abs(fz)^2)
+        ("x", "y", "z")
     else
         throw(ArgumentError("Unknown geometry: $(fm.geometry)"))
     end
+    f1, f2, f3 = map(axis -> scaled_component(fm, prefix * axis), axes)
+    return @. sqrt(abs(f1)^2 + abs(f2)^2 + abs(f3)^2)
 end
 
 # ── getindex ──────────────────────────────────────────────────────────────
@@ -400,10 +390,8 @@ function Base.getindex(fm::FieldMesh, key::String)
     op, stripped = _get_operator(key)
 
     # Field magnitudes
-    dat = if stripped == "E"
-        _field_magnitude(fm, "E")
-    elseif stripped == "B"
-        _field_magnitude(fm, "B")
+    dat = if stripped in ("E", "B")
+        _field_magnitude(fm, stripped)
     else
         scaled_component(fm, stripped)
     end
