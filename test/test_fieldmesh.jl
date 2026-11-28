@@ -53,6 +53,11 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
     end
 
     @testset "Grid accessors" begin
+        rf = FieldMesh(joinpath(@__DIR__, "fixtures", "openpmd_python_rf.h5"))
+        @test mins(rf) == map(first, coord_vecs(rf))
+        @test maxs(rf) == map(last, coord_vecs(rf))
+        @test interpolate(rf, "Ex", maxs(rf)) ≈ rf["Ex"][end, end, end]
+
         fm = FieldMesh(FIELDMESH_FILE)
 
         # mins, maxs, deltas

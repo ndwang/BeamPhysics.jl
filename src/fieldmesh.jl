@@ -149,12 +149,16 @@ function axis_index(fm::FieldMesh, key::String)
     throw(ArgumentError("Axis not found: $key. Available: $(fm.axis_labels)"))
 end
 
+function _axis_range(fm::FieldMesh, i::Int)
+    return range(fm.grid_origin[i]; step=fm.grid_spacing[i], length=fm.grid_size[i])
+end
+
 """
     mins(fm::FieldMesh) -> NTuple{3, Float64}
 
 Grid minimum coordinates.
 """
-mins(fm::FieldMesh) = fm.grid_origin
+mins(fm::FieldMesh) = ntuple(i -> first(_axis_range(fm, i)), 3)
 
 """
     deltas(fm::FieldMesh) -> NTuple{3, Float64}
@@ -168,9 +172,7 @@ deltas(fm::FieldMesh) = fm.grid_spacing
 
 Grid maximum coordinates.
 """
-function maxs(fm::FieldMesh)
-    return ntuple(i -> fm.grid_origin[i] + fm.grid_spacing[i] * (fm.grid_size[i] - 1), 3)
-end
+maxs(fm::FieldMesh) = ntuple(i -> last(_axis_range(fm, i)), 3)
 
 """
     coord_vec(fm::FieldMesh, label::String) -> Vector{Float64}
@@ -178,8 +180,7 @@ end
 Coordinate vector along the named axis.
 """
 function coord_vec(fm::FieldMesh, label::String)
-    i = axis_index(fm, label)
-    return range(fm.grid_origin[i], step=fm.grid_spacing[i], length=fm.grid_size[i]) |> collect
+    return collect(_axis_range(fm, axis_index(fm, label)))
 end
 
 """
@@ -426,20 +427,19 @@ Rebuild the interpolator after changing the mesh.
 """
 function interpolator(fm::FieldMesh, key::String)
     dat = fm[key]
-    origin = fm.grid_origin
-    singleton = map(==(1), fm.grid_size)
+    ranges = ntuple(i -> _axis_range(fm, i), 3)
+    singleton = map(r -> length(r) == 1, ranges)
     modes = map(s -> s ? Interpolations.NoInterp() :
                          Interpolations.BSpline(Interpolations.Linear()), singleton)
     grid = ntuple(3) do i
-        singleton[i] ? axes(dat, i) :
-            range(origin[i]; step=fm.grid_spacing[i], length=fm.grid_size[i])
+        singleton[i] ? axes(dat, i) : ranges[i]
     end
     itp = Interpolations.scale(Interpolations.interpolate(dat, modes), grid...)
     return function (x::Real, y::Real, z::Real)
         point = (x, y, z)
         indices = ntuple(3) do i
             singleton[i] || return point[i]
-            point[i] == origin[i] || throw(BoundsError(itp, point))
+            point[i] == first(ranges[i]) || throw(BoundsError(itp, point))
             return 1
         end
         return itp(indices...)
