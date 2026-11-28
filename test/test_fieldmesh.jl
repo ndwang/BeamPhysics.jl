@@ -47,10 +47,10 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
                        (1.0, 1.0, 1.0), size(bz), "center", 0, 0.0, 0.0, 1.0,
                        Dict("magneticField/z" => bz))
 
-        xy = fieldmesh_plot(fm; component="Bz", z=0.4)
+        xy = fieldmesh_plot(fm; component=:Bz, z=0.4)
         @test xy.series_list[1][:z].surf ≈ [xi + 4 for yi in y, xi in x]
 
-        yz = fieldmesh_plot(fm; component="Bz", x=0.25)
+        yz = fieldmesh_plot(fm; component=:Bz, x=0.25)
         @test yz.series_list[1][:z].surf ≈ [0.25 + 10zi for yi in y, zi in z]
     end
 
@@ -243,10 +243,16 @@ end
     @test startswith(ex_im[:label], "Im ") && occursin("V/m", ex_im[:label])
     @test startswith(bz_re[:label], "Re ") && startswith(bz_im[:label], "Im ")
 
-    for (key, op) in (("re_Bz", real), ("im_Bz", imag), ("abs_Bz", abs))
-        cut = fieldmesh_plot(fm; component=key, z=1)
+    for op in (real, imag, abs)
+        cut = fieldmesh_plot(fm; component=:Bz, transform=op, z=1)
         @test cut.series_list[1][:z].surf ≈ [op((1+2im)*(11 + 3xi + 2yi)) for yi in y, xi in x]
     end
+
+    # Opposite phases at neighboring samples have the same magnitude.
+    fm["Ex"][1, :, :] .= -im
+    fm["Ex"][2, :, :] .= im
+    magnitude = fieldmesh_plot(fm; component=:Ex, transform=abs, x=0)
+    @test magnitude.series_list[1][:z].surf == ones(length(y), length(z))
 
     cylindrical = FieldMesh("cylindrical", ("r", "theta", "z"), (0., 0., 0.), (1., 0., 1.),
                             (2, 1, 3), "center", 1, 1e9, 0., 1.,
@@ -254,6 +260,14 @@ end
     cyl_series = only(fieldmesh_plot_onaxis(cylindrical).series_list)
     @test cyl_series[:y] ≈ 1 .+ z
     @test startswith(cyl_series[:label], "Im ")
-    @test fieldmesh_plot(cylindrical; component="im_Ez").series_list[1][:z].surf ≈
+    @test fieldmesh_plot(cylindrical; component=:Ez, transform=imag).series_list[1][:z].surf ≈
           [1+r+zi for r in 0:1, zi in z]
+    @test fieldmesh_plot(cylindrical).series_list[1][:z].surf ≈
+          [1+r+zi for r in 0:1, zi in z]
+
+    cylindrical.components["magneticField/r"] = [im*r*(1+zi) for r in 0:1, t in 1:1, zi in z]
+    radial = fieldmesh_plot(cylindrical; component=:Br, transform=imag, mirror=true)
+    @test radial.series_list[1][:z].surf[1, :] ≈ -(1 .+ z)
+    radial_abs = fieldmesh_plot(cylindrical; component=:Br, transform=abs, mirror=true)
+    @test radial_abs.series_list[1][:z].surf[1, :] ≈ 1 .+ z
 end

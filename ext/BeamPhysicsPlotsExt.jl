@@ -7,7 +7,6 @@ using BeamPhysics: pg_units, plottable_array, nice_array, nice_scale_prefix,
 
 import BeamPhysics: slice_plot, density_plot, marginal_plot, density_and_slice_plot
 import BeamPhysics: fieldmesh_plot, fieldmesh_plot_onaxis
-import BeamPhysics: FieldMesh, coord_vec, mins, maxs, is_pure_magnetic, is_static, pg_units, nice_array
 
 using StatsBase: weights, fit, Histogram
 import Statistics
@@ -390,29 +389,31 @@ end
 
 # ── FieldMesh plotting ─────────────────────────────────────────────────────
 
-function _field_label(component, prefix)
-    op, name = BeamPhysics._get_operator(component)
+function _field_label(component, prefix, transform=nothing)
+    name = string(component)
     label = mathlabel(name; units=prefix * string(pg_units(name)))
-    isnothing(op) && return label
-    return (op === real ? "Re " : op === imag ? "Im " : "abs ") * label
+    transform === real && return "Re " * label
+    transform === imag && return "Im " * label
+    transform === abs && return "abs " * label
+    return label
 end
 
 """
-    fieldmesh_plot(fm::FieldMesh; component=nothing, mirror=false, cmap=:plasma, kwargs...)
+    fieldmesh_plot(fm::FieldMesh; component, transform=real, mirror=false, cmap=:plasma, kwargs...)
 
 2D heatmap of a FieldMesh field component.
 
-For cylindrical geometry, plots the (r, z) plane at theta=0. Z is on the x-axis,
+For cylindrical geometry, plots the (r, z) plane at the first theta sample. Z is on the x-axis,
 r on the y-axis (convention for accelerators).
 
 For rectangular geometry, plots the (x, z) plane at y=0 by default. Pass
 `x=value`, `y=value`, or `z=value` to interpolate at a coordinate within the grid.
 
 # Arguments
-- `component`: Field component to plot (e.g. `"Bz"`, `"B"`, `"Ez"`).
-  Use `"re_Ez"`, `"im_Ez"`, or `"abs_Ez"` for the quadratures or magnitude
-  of an RF component. A bare component name displays its real part.
-  Defaults to `"B"` for pure magnetic, `"E"` otherwise.
+- `component`: A native component such as `:Bz` or `:Ez`, or the vector magnitude
+  `:B` or `:E`. Defaults to `:B` for a purely magnetic map and `:E` otherwise.
+- `transform`: Apply `real` (default), `imag`, or `abs` to the field samples
+  before interpolating a slice.
 - `mirror`: For cylindrical only. If `true`, mirrors data to show negative-r side.
   `Br` and `Er` components are sign-flipped on the mirrored side.
 - `cmap`: Colormap (default `:plasma`)
@@ -422,45 +423,44 @@ For rectangular geometry, plots the (x, z) plane at y=0 by default. Pass
 `Plots.Plot`
 """
 function fieldmesh_plot(fm::FieldMesh;
-    component::Union{String, Nothing} = nothing,
+    component::Symbol = is_pure_magnetic(fm) ? :B : :E,
+    transform = real,
     mirror::Bool = false,
     cmap = :plasma,
     kwargs...
 )
-    if isnothing(component)
-        component = is_pure_magnetic(fm) ? "B" : "E"
-    end
+    transform in (real, imag, abs) || throw(ArgumentError("transform must be real, imag, or abs"))
+    values = fm[String(component)]
 
     if fm.geometry == "cylindrical"
-        return _fieldmesh_plot_cylindrical(fm, component; mirror=mirror, cmap=cmap, kwargs...)
+        return _fieldmesh_plot_cylindrical(fm, component, values, transform; mirror, cmap, kwargs...)
     elseif fm.geometry == "rectangular"
-        return _fieldmesh_plot_rectangular(fm, component; cmap=cmap, kwargs...)
+        return _fieldmesh_plot_rectangular(fm, component, values, transform; cmap, kwargs...)
     else
         throw(ArgumentError("Unsupported geometry: $(fm.geometry)"))
     end
 end
 
-function _fieldmesh_plot_cylindrical(fm::FieldMesh, component::String;
+function _fieldmesh_plot_cylindrical(fm::FieldMesh, component, values, transform;
     mirror::Bool = false, cmap = :plasma, kwargs...)
 
     r = coord_vec(fm, "r")
     z = coord_vec(fm, "z")
 
-    dat = real.(fm[component][:, 1, :])   # shape (nr, nz), real part for display
+    dat = transform.(@view values[:, 1, :])
 
     if mirror
         if r[1] != 0.0
             throw(ArgumentError("mirror=true only available when r=0 is at grid origin"))
         end
         # Sign convention: radial components flip sign, axial/magnitude do not
-        op, name = BeamPhysics._get_operator(component)
-        sign = name in ("Br", "Er") && op !== abs ? -1 : 1
+        sign = component in (:Br, :Er) && transform !== abs ? -1 : 1
         dat = vcat(sign .* reverse(dat; dims=1), dat)
         r = vcat(-reverse(r), r)
     end
 
     dat_scaled, fac, prefix = nice_array(dat)
-    clabel = _field_label(component, prefix)
+    clabel = _field_label(component, prefix, transform === real && eltype(values) <: Real ? nothing : transform)
     xlabel = "\$z\$ (m)"
     ylabel = "\$r\$ (m)"
 
@@ -469,42 +469,40 @@ function _fieldmesh_plot_cylindrical(fm::FieldMesh, component::String;
         color=cmap, kwargs...)
 end
 
-function _fieldmesh_plot_rectangular(fm::FieldMesh, component::String;
+function _fieldmesh_plot_rectangular(fm::FieldMesh, component, values, transform;
     cmap = :plasma, kwargs...)
 
     # Pop slice coordinate from kwargs; default to y=0
     kw = Dict(kwargs)
-    slice_axis, slice_val = "y", 0.0
-    for ax in fm.axis_labels
-        if haskey(kw, Symbol(ax))
+    slice_axis, slice_val = :y, 0.0
+    for ax in Symbol.(fm.axis_labels)
+        if haskey(kw, ax)
             slice_axis = ax
-            slice_val = Float64(pop!(kw, Symbol(ax)))
+            slice_val = Float64(pop!(kw, ax))
             break
         end
     end
 
-    x = coord_vec(fm, "x")
-    y = coord_vec(fm, "y")
-    z = coord_vec(fm, "z")
+    x, y, z = coord_vecs(fm)
 
-    field = BeamPhysics.interpolator(fm, component)
+    field = BeamPhysics.interpolator(fm, transform.(values))
 
-    if slice_axis == "y"
-        dat = [real(field(xi, slice_val, zi)) for xi in x, zi in z]
+    if slice_axis == :y
+        dat = [field(xi, slice_val, zi) for xi in x, zi in z]
         hax, vax = z, x
         xlabel, ylabel = "\$z\$ (m)", "\$x\$ (m)"
-    elseif slice_axis == "x"
-        dat = [real(field(slice_val, yi, zi)) for yi in y, zi in z]
+    elseif slice_axis == :x
+        dat = [field(slice_val, yi, zi) for yi in y, zi in z]
         hax, vax = z, y
         xlabel, ylabel = "\$z\$ (m)", "\$y\$ (m)"
     else  # z
-        dat = [real(field(xi, yi, slice_val)) for yi in y, xi in x]
+        dat = [field(xi, yi, slice_val) for yi in y, xi in x]
         hax, vax = x, y
         xlabel, ylabel = "\$x\$ (m)", "\$y\$ (m)"
     end
 
     dat_scaled, fac, prefix = nice_array(dat)
-    clabel = _field_label(component, prefix)
+    clabel = _field_label(component, prefix, transform === real && eltype(values) <: Real ? nothing : transform)
 
     return heatmap(hax, vax, dat_scaled;
         xlabel=xlabel, ylabel=ylabel, colorbar_title=clabel,
@@ -527,13 +525,28 @@ RF profiles show their nonzero real and imaginary quadratures.
 `Plots.Plot`
 """
 function fieldmesh_plot_onaxis(fm::FieldMesh; kwargs...)
-    if fm.geometry == "cylindrical"
-        return _fieldmesh_onaxis_cylindrical(fm; kwargs...)
-    elseif fm.geometry == "rectangular"
-        return _fieldmesh_onaxis_rectangular(fm; kwargs...)
-    else
-        throw(ArgumentError("Unsupported geometry: $(fm.geometry)"))
+    cylindrical = fm.geometry == "cylindrical"
+    components = cylindrical ? (:Ez, :Bz) : (:Ex, :Ey, :Ez, :Bx, :By, :Bz)
+    # The cylindrical axis uses r=0 at the map's first theta sample.
+    second_coord = cylindrical ? fm.grid_origin[2] : 0.0
+    z = coord_vec(fm, "z")
+    p = plot(; xlabel="\$z\$ (m)", kwargs...)
+    plotted_electric = false
+    for component in components
+        haskey(fm.components, BeamPhysics.COMPONENT_FROM_ALIAS[String(component)]) || continue
+        field = BeamPhysics.interpolator(fm, String(component))
+        values = [field(0, second_coord, zi) for zi in z]
+        all(iszero, values) && continue
+        if cylindrical
+            axis = component === :Bz && plotted_electric ? twinx(p) : p
+            color = component === :Bz ? :blue : :black
+            _plot_field_profile!(axis, z, values, component; rf=!is_static(fm), color, label_axis=true)
+            plotted_electric = component === :Ez
+        else
+            _plot_field_profile!(p, z, values, component; rf=!is_static(fm))
+        end
     end
+    return p
 end
 
 function _plot_field_profile!(p, z, values, component; rf, color=:auto, label_axis=false)
@@ -542,10 +555,10 @@ function _plot_field_profile!(p, z, values, component; rf, color=:auto, label_ax
         im_part = imag.(values)
         factor, prefix = nice_scale_prefix(maximum(abs, values))
         if any(!iszero, re) || all(iszero, im_part)
-            plot!(p, z, re ./ factor; label=_field_label("re_" * component, prefix), color)
+            plot!(p, z, re ./ factor; label=_field_label(component, prefix, real), color)
         end
         if any(!iszero, im_part)
-            plot!(p, z, im_part ./ factor; label=_field_label("im_" * component, prefix),
+            plot!(p, z, im_part ./ factor; label=_field_label(component, prefix, imag),
                   color, linestyle=:dash)
         end
     else
@@ -553,45 +566,6 @@ function _plot_field_profile!(p, z, values, component; rf, color=:auto, label_ax
         plot!(p, z, scaled; label=_field_label(component, prefix), color)
     end
     label_axis && ylabel!(p, _field_label(component, prefix))
-    return p
-end
-
-function _fieldmesh_onaxis_cylindrical(fm::FieldMesh; kwargs...)
-    z = coord_vec(fm, "z")
-    has_Ez = haskey(fm.components, "electricField/z")
-    has_Bz = haskey(fm.components, "magneticField/z")
-
-    p = plot(; xlabel="\$z\$ (m)", kwargs...)
-
-    if has_Ez
-        _plot_field_profile!(p, z, fm["Ez"][1, 1, :], "Ez"; rf=!is_static(fm),
-                             color=:black, label_axis=true)
-    end
-    if has_Bz
-        axis = has_Ez ? twinx(p) : p
-        _plot_field_profile!(axis, z, fm["Bz"][1, 1, :], "Bz"; rf=!is_static(fm),
-                             color=:blue, label_axis=true)
-    end
-
-    return p
-end
-
-function _fieldmesh_onaxis_rectangular(fm::FieldMesh; kwargs...)
-    z = coord_vec(fm, "z")
-
-    p = plot(; xlabel="\$z\$ (m)", kwargs...)
-
-    field_keys = [("electricField/x", "Ex"), ("electricField/y", "Ey"), ("electricField/z", "Ez"),
-                  ("magneticField/x", "Bx"), ("magneticField/y", "By"), ("magneticField/z", "Bz")]
-
-    for (comp, alias) in field_keys
-        haskey(fm.components, comp) || continue
-        field = BeamPhysics.interpolator(fm, alias)
-        fdat = [field(0, 0, zi) for zi in z]
-        all(iszero, fdat) && continue
-        _plot_field_profile!(p, z, fdat, alias; rf=!is_static(fm))
-    end
-
     return p
 end
 
