@@ -607,6 +607,20 @@ for plane in ("x", "y")
     PARTICLEGROUP_UNITS["twiss_gamma_$(plane)"]     = power_unit(_M, -1)
 end
 
+function _covariance_keys(key::AbstractString)
+    operands = chopprefix(key, "cov_")
+    pairs = Tuple{String,String}[]
+    for i in findall(==('_'), operands)
+        left = operands[begin:prevind(operands, i)]
+        right = operands[nextind(operands, i):end]
+        if haskey(PARTICLEGROUP_UNITS, left) && haskey(PARTICLEGROUP_UNITS, right)
+            push!(pairs, (left, right))
+        end
+    end
+    length(pairs) == 1 || throw(ArgumentError("Expected a unique pair of particle quantities in $key"))
+    return only(pairs)
+end
+
 """
     pg_units(key::String) -> PMDUnit
 
@@ -624,9 +638,8 @@ function pg_units(key::String)
 
     # Covariance
     if startswith(key, "cov_")
-        subkeys = split(key[5:end], "_")
-        length(subkeys) == 2 || error("Invalid covariance key format: $key")
-        return PARTICLEGROUP_UNITS[subkeys[1]] * PARTICLEGROUP_UNITS[subkeys[2]]
+        left, right = _covariance_keys(key)
+        return PARTICLEGROUP_UNITS[left] * PARTICLEGROUP_UNITS[right]
     end
 
     # Fields

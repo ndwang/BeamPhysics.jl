@@ -128,9 +128,9 @@ function texlabel(key::AbstractString)
     end
 
     if startswith(key, "cov_")
-        subkeys = split(key[5:end], "_")
-        tex0 = texlabel(subkeys[1])
-        tex1 = texlabel(subkeys[2])
+        left, right = _covariance_keys(key)
+        tex0 = texlabel(left)
+        tex1 = texlabel(right)
         return "\\left<$tex0, $tex1\\right>"
     end
 

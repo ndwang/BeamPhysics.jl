@@ -455,7 +455,7 @@ end
     @test pg_units("delta_pz").dims == pg_units("pz").dims
 end
 
-@testset "pg_units — covariance" begin
+@testset "Covariance units and labels" begin
     u = pg_units("cov_x_px")
     @test u.symbol == "m*eV/c"
     @test u.dims   == KNOWN_UNIT["m"].dims .+ KNOWN_UNIT["eV/c"].dims
@@ -463,6 +463,13 @@ end
     u2 = pg_units("cov_x_x")
     @test u2.symbol == "(m)^2"
     @test u2.dims   == (2., 0., 0., 0., 0., 0., 0.)
+
+    @test pg_units("cov_x_beta_x") == pg_units("x")
+    @test texlabel("cov_x_beta_x") == raw"\left<x, \beta_x\right>"
+    @test is_identity(pg_units("cov_beta_x_beta_y"))
+    @test texlabel("cov_beta_x_beta_y") == raw"\left<\beta_x, \beta_y\right>"
+    @test_throws ArgumentError pg_units("cov_x_beta_unknown")
+    @test_throws ArgumentError texlabel("cov_x_beta_unknown")
 end
 
 @testset "pg_units — special keys" begin
