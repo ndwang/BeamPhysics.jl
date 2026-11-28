@@ -46,7 +46,7 @@ write_particle_group("particles_out.h5", pg)
 [`write_particle_group`](@ref) preserves particle IDs and the following optional
 columns in `pg.extra` when present: `s`, `ix_branch`, `ix_ele`, `location`,
 `p0c`, `spin_x`, `spin_y`, `spin_z`, and `charge_state`. Other entries,
-such as a user-defined `pg.extra[:diagnostic]`, are in-memory only.
+such as a user-defined `pg.extra[:initial_radius]`, are in-memory only.
 
 ## Reading Field Meshes
 

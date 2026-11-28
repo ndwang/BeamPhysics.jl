@@ -9,5 +9,6 @@ using BeamPhysics
     include("test_particlegroup_view.jl")
     include("test_io_openpmd.jl")
     include("test_fieldmesh.jl")
+    include("test_slice_plot.jl")
 end
 

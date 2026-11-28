@@ -27,9 +27,19 @@ marginal_plot(pg, :t, energy)
 slice_plot(pg, norm_emit_x, norm_emit_y)
 slice_plot(pg, norm_emit_x; slice_key=:t)
 
-# Combined density + slice
-density_and_slice_plot(pg, :t, :x)
+# A custom function returns one value per slice
+width_mm(g) = 1000 * std(g, :x)
+slice_plot(pg, "Beam width (mm)" => width_mm)
+
+# Time–energy heatmap with slice statistics on the right axis
+density_and_slice_plot(pg, :t, energy, norm_emit_x, norm_emit_y)
+density_and_slice_plot(pg, :t, energy, "Beam width (mm)" => width_mm)
 ```
+
+In the combined plot, the first coordinate also selects the slicing direction.
+Both plots accept one or more slice statistics as positional arguments. If either
+plot encounters an unrecognized name or label, it displays all slice statistics in
+their supplied units. Include those units in custom labels.
 
 See [`density_plot`](@ref), [`marginal_plot`](@ref), [`slice_plot`](@ref),
 [`density_and_slice_plot`](@ref).

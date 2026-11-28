@@ -34,26 +34,49 @@ end
 _plot_key(column::Symbol) = string(column)
 _plot_key(f::Function) = string(nameof(f))
 _plot_key(::typeof(momentum)) = "p"
-_plot_key(diagnostic::Pair) = string(first(diagnostic))
+_plot_key(statistic::Pair) = string(first(statistic))
 _plot_function(f) = f
-_plot_function(diagnostic::Pair) = last(diagnostic)
+_plot_function(statistic::Pair) = last(statistic)
 
-function _slice_plot_data(pg, by, n, diagnostics)
+function _slice_plot_data(pg, by, n, slice_statistics)
     groups = slices(pg; by, n)
     center = [Statistics.mean(s, by) for s in groups]
     density = [charge(s) / ptp(s, by) for s in groups]
-    values = map(diagnostic -> map(_plot_function(diagnostic), groups), diagnostics)
+    values = map(statistic -> map(_plot_function(statistic), groups), slice_statistics)
     return center, density, values
 end
 
+function _slice_statistic_axis(slice_statistics, magnitude, tex)
+    keys = map(_plot_key, slice_statistics)
+    units = map(keys) do key
+        try
+            pg_units(key)
+        catch err
+            err isa Union{ErrorException,ArgumentError} || rethrow()
+            nothing
+        end
+    end
+    if any(isnothing, units)
+        return 1, keys, join(keys, ", ")
+    end
+    unit = first(units)
+    all(==(unit), units) || error("Incompatible units: $units")
+    factor, prefix = nice_scale_prefix(magnitude)
+    unit_label = prefix * string(unit)
+    labels = map(key -> mathlabel(key; units=unit_label, tex), keys)
+    return factor, labels, mathlabel(keys...; units=unit_label, tex)
+end
+
 """
-    slice_plot(particle_group, diagnostics...; n_slice=40, slice_key=nothing, xlim=nothing, ylim=nothing, tex=true, kwargs...)
+    slice_plot(particle_group, slice_statistic, more_slice_statistics...; n_slice=40, slice_key=nothing, xlim=nothing, ylim=nothing, tex=true, kwargs...)
 
 Complete slice plotting routine. Will plot the density of the slice key on the right axis.
 
 # Arguments
 - `particle_group`: ParticleGroup object to plot
-- Diagnostics: pass functions such as norm_emit_x, or a label => function pair.
+- Slice statistics: pass one or more functions returning one value per slice, optionally as
+  `label => function` pairs. An unrecognized name or label is shown verbatim and disables
+  scaling for all curves on the slice statistics axis.
 - `n_slice`: Number of slices (default: 40)
 - `slice_key`: Dimension to slice in (default: automatically determined)
 - `xlim`: Manual setting of x-axis limits
@@ -63,28 +86,19 @@ Complete slice plotting routine. Will plot the density of the slice key on the r
 # Returns
 - `p`: Plots.Plot object
 """
-function slice_plot(particle_group, diagnostics...; n_slice=40, slice_key=nothing, xlim=nothing, ylim=nothing, tex=true, kwargs...)
+function slice_plot(particle_group, slice_statistic, more_slice_statistics...; n_slice=40, slice_key=nothing, xlim=nothing, ylim=nothing, tex=true, kwargs...)
     by = isnothing(slice_key) ? (in_t_coordinates(particle_group) ? :z : :t) : slice_key
-    keys = map(_plot_key, diagnostics)
-    x, density, values = _slice_plot_data(particle_group, by, n_slice, diagnostics)
+    slice_statistics = (slice_statistic, more_slice_statistics...)
+    x, density, values = _slice_plot_data(particle_group, by, n_slice, slice_statistics)
     slice_key = _plot_key(by)
     # X-axis
     x, f1, p1, xmin, xmax = plottable_array(x; lim=xlim)
     ux = p1 * string(pg_units(slice_key))
 
     # Y-axis
-    ulist = [pg_units(k) for k in keys]
-    uy = ulist[1]
-    if !all(u == uy for u in ulist)
-        error("Incompatible units: $ulist")
-    end
-    uy_str = string(uy)
-
-    ymin = minimum(minimum, values)
-    ymax = maximum(maximum, values)
-
-    _, f2, p2, ymin, ymax = plottable_array([ymin, ymax]; lim=ylim)
-    uy_str = p2 * uy_str
+    ymin, ymax = isnothing(ylim) ? (minimum(minimum, values), maximum(maximum, values)) : ylim
+    magnitude = max(abs(ymax - ymin), abs(Statistics.mean((ymin, ymax))))
+    f2, labels, labely = _slice_statistic_axis(slice_statistics, magnitude, tex)
 
     # Calculate plot limits
     plot_xlim = isnothing(xlim) ? (xmin/f1, xmax/f1) : xlim
@@ -94,14 +108,13 @@ function slice_plot(particle_group, diagnostics...; n_slice=40, slice_key=nothin
     p = plot(; xlim=plot_xlim, ylim=plot_ylim, kwargs...)
 
     # Main curves
-    color = length(keys) == 1 ? :black : nothing
+    color = length(labels) == 1 ? :black : nothing
 
-    for (k, y) in zip(keys, values)
-        label = mathlabel(k, units=uy_str, tex=tex)
-        plot!(p, x, y ./ f2, label=label, color=color)
+    for (label, y) in zip(labels, values)
+        plot!(p, x, f2 == 1 ? y : y ./ f2; label, color)
     end
 
-    if length(keys) > 1
+    if length(labels) > 1
         plot!(p, legend=true)
     end
 
@@ -117,7 +130,6 @@ function slice_plot(particle_group, diagnostics...; n_slice=40, slice_key=nothin
 
     # Labels
     labelx = mathlabel(slice_key, units=ux, tex=tex)
-    labely = mathlabel(keys..., units=uy, tex=tex)
     labely2 = mathlabel("density", units=y2_units, tex=tex)
 
     xlabel!(p, labelx)
@@ -315,15 +327,15 @@ function marginal_plot(particle_group, key1=:t, key2=momentum; bins=nothing, xli
 end
 
 """
-    density_and_slice_plot(particle_group, key1=:t, key2=momentum; diagnostics=(norm_emit_x, norm_emit_y), bins=100, n_slice=30, tex=true)
+    density_and_slice_plot(particle_group, x_key, y_key, slice_statistic, more_slice_statistics...; bins=100, n_slice=30, tex=true)
 
-Combined density and slice plot.
+Plot a charge-weighted heatmap of two particle coordinates. Slice along `x_key`
+and overlay each slice statistic on the right axis.
 
 # Arguments
 - `particle_group`: ParticleGroup object to plot
-- `key1`: Key for x-axis (default: :t)
-- `key2`: Key for y-axis (default: momentum)
-- Diagnostics: functions to plot (default: normalized x and y emittance).
+- `x_key`, `y_key`: horizontal and vertical heatmap coordinates, e.g. `:t` and `energy`.
+- Slice statistics: pass one or more functions or `label => function` pairs, as in [`slice_plot`](@ref).
 - `bins`: Number of bins (default: 100)
 - `n_slice`: Number of slices (default: 30)
 - `tex`: Use TEX for labels (default: true)
@@ -331,20 +343,20 @@ Combined density and slice plot.
 # Returns
 - `p`: Plots.Plot object
 """
-function density_and_slice_plot(particle_group, key1=:t, key2=momentum; diagnostics=(norm_emit_x, norm_emit_y), bins=100, n_slice=30, tex=true)
+function density_and_slice_plot(particle_group, x_key, y_key, slice_statistic, more_slice_statistics...; bins=100, n_slice=30, tex=true)
     # Scale to nice units
-    x, f1, p1, xmin, xmax = plottable_array(_particle_values(particle_group, key1))
-    y, f2, p2, ymin, ymax = plottable_array(_particle_values(particle_group, key2))
+    x, f1, p1, xmin, xmax = plottable_array(_particle_values(particle_group, x_key))
+    y, f2, p2, ymin, ymax = plottable_array(_particle_values(particle_group, y_key))
     w = particle_group.weight
 
-    u1 = string(pg_units(_plot_key(key1)))
-    u2 = string(pg_units(_plot_key(key2)))
+    u1 = string(pg_units(_plot_key(x_key)))
+    u2 = string(pg_units(_plot_key(y_key)))
     ux = p1 * u1
     uy = p2 * u2
 
     # Create labels
-    labelx = mathlabel(_plot_key(key1), units=ux, tex=tex)
-    labely = mathlabel(_plot_key(key2), units=uy, tex=tex)
+    labelx = mathlabel(_plot_key(x_key), units=ux, tex=tex)
+    labely = mathlabel(_plot_key(y_key), units=uy, tex=tex)
 
     # Create plot
     p = plot()
@@ -356,25 +368,17 @@ function density_and_slice_plot(particle_group, key1=:t, key2=momentum; diagnost
     H = fit(Histogram, (x, y), weights(w), nbins=bins)
     heatmap!(p, H.edges[1], H.edges[2], H.weights', color=CMAP0, clims=(1e-16, Inf))
 
-    centers, density, values = _slice_plot_data(particle_group, key1, n_slice, diagnostics)
+    slice_statistics = (slice_statistic, more_slice_statistics...)
+    centers, density, values = _slice_plot_data(particle_group, x_key, n_slice, slice_statistics)
 
     # Add slice statistics
     p2 = twinx(p)
     x2 = centers ./ f1
-    stat_keys = map(_plot_key, diagnostics)
-    ulist = map(pg_units, stat_keys)
-
     max2 = maximum(ptp, values)
-    f3, p3 = nice_scale_prefix(max2)
+    f3, labels, labely2 = _slice_statistic_axis(slice_statistics, max2, tex)
 
-    u2 = ulist[1]
-    @assert all(u == u2 for u in ulist)
-    u2 = p3 * string(u2)
-    labely2 = mathlabel(stat_keys..., units=u2, tex=tex)
-
-    for (k, y) in zip(stat_keys, values)
-        label = mathlabel(k, units=u2, tex=tex)
-        plot!(p2, x2, y ./ f3, label=label)
+    for (label, y) in zip(labels, values)
+        plot!(p2, x2, f3 == 1 ? y : y ./ f3; label)
     end
 
     plot!(p2, legend=true)
