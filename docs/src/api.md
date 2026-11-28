@@ -43,7 +43,12 @@ Call these functions with a particle group.
 
 ## Statistics
 
+`delta(pg, column)` returns deviations from the weighted mean.
+`ptp(pg, column)` returns the peak-to-peak range.
+
 ```@docs
+mean(::BeamPhysics.AbstractParticleGroup, ::Any)
+cov(::BeamPhysics.AbstractParticleGroup, ::Any, ::Any)
 norm_emit_calc
 twiss_calc
 twiss_dispersion

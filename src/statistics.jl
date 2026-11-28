@@ -1,17 +1,29 @@
+_masked_group(pg, ::Nothing) = pg
+
+function _masked_group(pg, mask::AbstractVector{Bool})
+    length(mask) == length(pg) || throw(DimensionMismatch("mask must have one entry per particle"))
+    rows = findall(mask)
+    isempty(rows) && throw(ArgumentError("mask selects no particles"))
+    return view(pg, rows)
+end
+
 """
-    mean(pg, column)
-    std(pg, column)
+    mean(pg, column; mask=nothing)
+    std(pg, column; mask=nothing)
 
 Weighted mean and population standard deviation. Pass a symbol naming a stored
-column or a function returning one value per particle. All rows are included.
+column or a function returning one value per particle. A Boolean mask selects
+particles before evaluating the column. By default, all particles contribute.
 """
-function mean(pg::AbstractParticleGroup, column)
+function mean(pg::AbstractParticleGroup, column; mask=nothing)
+    pg = _masked_group(pg, mask)
     values = _particle_values(pg, column)
     length(values) == 1 && return only(values)
     return mean(values, weights(pg.weight))
 end
 
-function std(pg::AbstractParticleGroup, column)
+function std(pg::AbstractParticleGroup, column; mask=nothing)
+    pg = _masked_group(pg, mask)
     values = _particle_values(pg, column)
     length(values) == 1 && return zero(eltype(values))
     w = weights(pg.weight)
@@ -23,12 +35,14 @@ Base.minimum(pg::AbstractParticleGroup, column) = minimum(_particle_values(pg, c
 Base.maximum(pg::AbstractParticleGroup, column) = maximum(_particle_values(pg, column))
 
 """
-    cov(pg, first, second)
+    cov(pg, first, second; mask=nothing)
 
 Weighted population covariance between two particle columns. Each selector is a
-stored column symbol or a function returning one value per particle.
+stored column symbol or a function returning one value per particle. Pass a
+Boolean mask to compute the covariance over selected particles.
 """
-function cov(pg::AbstractParticleGroup, first, second)
+function cov(pg::AbstractParticleGroup, first, second; mask=nothing)
+    pg = _masked_group(pg, mask)
     x = _particle_values(pg, first)
     y = _particle_values(pg, second)
     w = weights(pg.weight)
@@ -37,12 +51,13 @@ function cov(pg::AbstractParticleGroup, first, second)
 end
 
 """
-    covariance_matrix(pg, columns...)
+    covariance_matrix(pg, columns...; mask=nothing)
 
 Weighted population covariance matrix, with rows and columns in selector order.
-Selectors are the same as for cov.
+Selectors and the optional Boolean mask are the same as for `cov`.
 """
-function covariance_matrix(pg::AbstractParticleGroup, columns...)
+function covariance_matrix(pg::AbstractParticleGroup, columns...; mask=nothing)
+    pg = _masked_group(pg, mask)
     data = hcat(map(column -> _particle_values(pg, column), columns)...)
     return cov(data, weights(pg.weight), 1; corrected=false)
 end

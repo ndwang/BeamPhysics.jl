@@ -50,6 +50,23 @@ const _STAT_BEAM = ParticleGroup(joinpath(@__DIR__, "initial_particles.h5"))
             @test covariance_matrix(pg, :x, beta_x)[1, 2] ≈ expected
         end
 
+        @testset "masked weighted statistics" begin
+            pg = single_particle(x=1.0, weight=1.0) +
+                 single_particle(x=20.0, weight=5.0, status=0) +
+                 single_particle(x=5.0, weight=3.0)
+            alive = pg.status .== 1
+            double_x = p -> 2 .* p.x
+            @test mean(pg, :x; mask=alive) == 4.0
+            @test std(pg, double_x; mask=alive) ≈ sqrt(12.0)
+            @test cov(pg, :x, double_x; mask=alive) ≈ 6.0
+            @test covariance_matrix(pg, :x, double_x; mask=alive) ≈ [3 6; 6 12]
+            @test mean(pg, p -> delta(p, :x); mask=alive) ≈ 0.0
+            subset = view(pg, [3, 2])
+            @test mean(subset, :x; mask=subset.status .== 1) == 5.0
+            @test_throws DimensionMismatch mean(pg, :x; mask=[true])
+            @test_throws ArgumentError mean(pg, :x; mask=falses(length(pg)))
+        end
+
         @testset "delta" begin
             pg = _STAT_BEAM
             d = delta(pg, :x)
