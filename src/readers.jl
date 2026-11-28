@@ -30,10 +30,11 @@ const PARTICLE_RECORD_COMPONENTS = Dict{String, Union{Nothing, Vector{String}}}(
     "weight" => nothing
 )
 
-const FIELD_RECORD_COMPONENTS = Dict{String, Vector{String}}(
-    "electricField" => ["x", "y", "z", "r", "theta"],
-    "magneticField" => ["x", "y", "z", "r", "theta"]
-)
+const FIELD_RECORD_FROM_COMPONENT = Dict(
+    Symbol(prefix, axis) => record * "/" * axis
+    for (prefix, record) in (("E", "electricField"), ("B", "magneticField"))
+    for axis in ("x", "y", "z", "r", "theta"))
+const FIELD_COMPONENT_FROM_RECORD = Dict(record => component for (component, record) in FIELD_RECORD_FROM_COMPONENT)
 
 # Expected unit dimensions for particle and field records
 const EXPECTED_RECORD_UNIT_DIMENSION = Dict{String, NTuple{7, Float64}}(
@@ -77,16 +78,14 @@ const COMPONENT_FROM_ALIAS = Dict{String, String}(
     "charge_state" => "chargeState"
 )
 
-# Add position, momentum, field aliases
-for (g, prefix) in zip(["position", "momentum", "electricField", "magneticField"], ["", "p", "E", "B"])
+# Add particle position and momentum aliases.
+for (g, prefix) in (("position", ""), ("momentum", "p"))
     for c in ["x", "y", "z", "r", "theta"]
         alias = prefix * c
         COMPONENT_FROM_ALIAS[alias] = g * "/" * c
     end
 end
 
-# Inverse mapping
-const COMPONENT_ALIAS = Dict(v => k for (k, v) in COMPONENT_FROM_ALIAS)
 const OPTIONAL_PARTICLE_COLUMNS = (:s, :ix_branch, :ix_ele, :location, :p0c,
                                    :spin_x, :spin_y, :spin_z, :charge_state)
 const REVERSED_FIELD_AXES = (("z", "y", "x"), ("z", "theta", "r"))

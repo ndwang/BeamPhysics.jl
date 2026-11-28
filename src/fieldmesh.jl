@@ -97,20 +97,17 @@ function FieldMesh(h5::HDF5.Group)
     field_scale = Float64(a["fieldScale"])
 
     components = Dict{String, Array{<:Number, 3}}()
-    for (record, comp_names) in FIELD_RECORD_COMPONENTS
-        haskey(h5, record) || continue
-        for cname in comp_names
-            haskey(h5[record], cname) || continue
-            key = record * "/" * cname
-            node = h5[key]
-            cdat = component_data(node; axis_labels=file_axes)
-            dim = Tuple(attrs(node)["unitDimension"])
-            dim == EXPECTED_RECORD_UNIT_DIMENSION[record] ||
-                throw(ArgumentError("$key has incompatible unitDimension $dim"))
-            size(cdat) == grid_size ||
-                throw(DimensionMismatch("$key has size $(size(cdat)); expected $grid_size"))
-            components[key] = iszero(harmonic) && !(eltype(cdat) <: Real) ? real.(cdat) : cdat
-        end
+    for key in values(FIELD_RECORD_FROM_COMPONENT)
+        haskey(h5, key) || continue
+        record = first(split(key, '/'))
+        node = h5[key]
+        cdat = component_data(node; axis_labels=file_axes)
+        dim = Tuple(attrs(node)["unitDimension"])
+        dim == EXPECTED_RECORD_UNIT_DIMENSION[record] ||
+            throw(ArgumentError("$key has incompatible unitDimension $dim"))
+        size(cdat) == grid_size ||
+            throw(DimensionMismatch("$key has size $(size(cdat)); expected $grid_size"))
+        components[key] = iszero(harmonic) && !(eltype(cdat) <: Real) ? real.(cdat) : cdat
     end
 
     for key in ("gridLowerBound", "name", "gridCurvatureRadius", "masterParameter")
@@ -323,8 +320,8 @@ function _resolve_component_key(fm::FieldMesh, key::String)
     # Direct match
     haskey(fm.components, key) && return key
     # Alias lookup
-    if haskey(COMPONENT_FROM_ALIAS, key)
-        full = COMPONENT_FROM_ALIAS[key]
+    if haskey(FIELD_RECORD_FROM_COMPONENT, Symbol(key))
+        full = FIELD_RECORD_FROM_COMPONENT[Symbol(key)]
         haskey(fm.components, full) && return full
         return nothing
     end

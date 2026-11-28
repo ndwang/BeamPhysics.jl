@@ -9,7 +9,7 @@ import BeamPhysics:
     is_constant_component, constant_component_value,
     all_components, component_str, offset_component_name,
     load_field_attrs,
-    COMPONENT_FROM_ALIAS, COMPONENT_ALIAS,
+    COMPONENT_FROM_ALIAS,
     write_unit_h5, read_unit_h5
 
 const _PARTICLE_FILE = joinpath(@__DIR__, "initial_particles.h5")

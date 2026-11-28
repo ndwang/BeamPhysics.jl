@@ -533,7 +533,7 @@ function fieldmesh_plot_onaxis(fm::FieldMesh; kwargs...)
     p = plot(; xlabel="\$z\$ (m)", kwargs...)
     plotted_electric = false
     for component in components
-        haskey(fm.components, BeamPhysics.COMPONENT_FROM_ALIAS[String(component)]) || continue
+        haskey(fm.components, BeamPhysics.FIELD_RECORD_FROM_COMPONENT[component]) || continue
         field = BeamPhysics.interpolator(fm, String(component))
         values = [field(0, second_coord, zi) for zi in z]
         all(iszero, values) && continue

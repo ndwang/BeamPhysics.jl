@@ -160,14 +160,13 @@ function write_pmd_field(h5, data::Dict; name=nothing)
     reverse_axes = !(Tuple(field_attrs["axisLabels"]) in REVERSED_FIELD_AXES)
     grid_size = Tuple(field_attrs["gridSize"])
     for (key, val) in data["components"]
-        component = get(COMPONENT_FROM_ALIAS, key, key)
-        record, axis = split(component, "/"; limit=2)
-        axis in get(FIELD_RECORD_COMPONENTS, record, ()) ||
+        component = get(FIELD_RECORD_FROM_COMPONENT, Symbol(key), key)
+        haskey(FIELD_COMPONENT_FROM_RECORD, component) ||
             throw(ArgumentError("Unknown field component: $key"))
         size(val) == grid_size ||
             throw(DimensionMismatch("$key does not match gridSize"))
         write_component_data(g, component, ComplexF64.(val);
-                             unit=pg_units(COMPONENT_ALIAS[component]), reverse_axes)
+                             unit=pg_units(String(FIELD_COMPONENT_FROM_RECORD[component])), reverse_axes)
     end
 end
 
