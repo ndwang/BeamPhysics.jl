@@ -10,15 +10,25 @@ This package reads and writes files in the
 ```julia
 using BeamPhysics
 
-# Load particles (file must contain exactly one particle path)
+# Load a file with one particle path and one species
 pg = ParticleGroup("particles.h5")
+```
 
-# Inspect available paths in a file
+For a file with multiple iterations, list the particle paths and select the
+one you want. For example, if the list includes `"/data/1/"`:
+
+```julia
 using HDF5
-h5open("particles.h5", "r") do h5
-    println(particle_paths(h5))
+
+paths = h5open(particle_paths, "particles.h5", "r")
+pg = h5open("particles.h5", "r") do h5
+    ParticleGroup(h5["/data/1/"])
 end
 ```
+
+If the selected group contains multiple species, inspect its children with
+`keys(h5["/data/1/"])` inside the block and select the species explicitly,
+for example `ParticleGroup(h5["/data/1/electron"])`.
 
 Each entry in `pg.weight` is the macroparticle charge in coulombs.
 Particle IDs are available in `pg.id` and optional columns in `pg.extra`,
