@@ -203,25 +203,27 @@ function amplitude_calc(x, p; beta=1, alpha=0)
     return (1 + alpha^2) / beta / 2 .* x.^2 .+ alpha .* x .* p .+ beta / 2 .* p.^2
 end
 
+function _coordinates_and_twiss(pg, plane; mass_normalize, twiss)
+    x = getproperty(pg, plane)
+    p = getproperty(pg, _momentum_column(plane))
+    if mass_normalize
+        p = p ./ mass(pg)
+    end
+    if isnothing(twiss)
+        sigma_mat2 = cov(hcat(x, p), weights(pg.weight), 1; corrected=false)
+        twiss = twiss_calc(sigma_mat2)
+    end
+    return x, p, twiss
+end
+
 """
     particle_amplitude(particle_group; plane=:x, twiss=nothing, mass_normalize=true)
 
 Returns the action J = (x_bar^2 + p_bar^2)/2 for each particle in the given plane.
 """
 function particle_amplitude(particle_group::AbstractParticleGroup; plane=:x, twiss=nothing, mass_normalize=true)
-    x = getproperty(particle_group, plane)
-    p = getproperty(particle_group, _momentum_column(plane))
-    if mass_normalize
-        p = p ./ mass(particle_group)
-    end
-    if isnothing(twiss)
-        sigma_mat2 = cov(hcat(x, p), weights(particle_group.weight), 1; corrected=false)
-        twiss = twiss_calc(sigma_mat2)
-    end
-
-    J = amplitude_calc(x, p; beta=twiss.beta, alpha=twiss.alpha)
-
-    return J
+    x, p, twiss = _coordinates_and_twiss(particle_group, plane; mass_normalize, twiss)
+    return amplitude_calc(x, p; beta=twiss.beta, alpha=twiss.alpha)
 end
 
 """
@@ -231,16 +233,7 @@ Returns a single normalized coordinate array from a ParticleGroup.
 """
 function normalized_particle_coordinate(particle_group::AbstractParticleGroup, key::Symbol; twiss=nothing, mass_normalize=true)
     plane = get((px=:x, py=:y, pz=:z), key, key)
-    x = getproperty(particle_group, plane)
-    p = getproperty(particle_group, _momentum_column(plane))
-    if mass_normalize
-        p = p ./ mass(particle_group)
-    end
-    if isnothing(twiss)
-        sigma_mat2 = cov(hcat(x, p), weights(particle_group.weight), 1; corrected=false)
-        twiss = twiss_calc(sigma_mat2)
-    end
-
+    x, p, twiss = _coordinates_and_twiss(particle_group, plane; mass_normalize, twiss)
     A_inv = A_inverse_mat_calc(twiss.beta, twiss.alpha)
 
     if key != plane
