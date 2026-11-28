@@ -22,8 +22,10 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         rf = FieldMesh("rectangular", ("x", "y", "z"), (0.0, 0.0, -2.0),
                        (1.0, 2.0, 2.0), size(ex), "center", 1, 1.3e9, 0.25, 2.0,
                        Dict("electricField/x" => ex))
+        @test interpolator(rf, rf["Ex"])(0.25, 3, 1.5) == interpolator(rf, "Ex")(0.25, 3, 1.5)
+        @test_throws DimensionMismatch interpolator(rf, zeros(2, 2, 2))
         @test interpolate(rf, "Ex", (0.25, 3, 1.5)) ≈ -2.5 - 21.5im
-        @test interpolate(rf, "abs_Ex", (0.25, 0, -2)) ≈
+        @test interpolate(rf, abs.(rf["Ex"]), (0.25, 0, -2)) ≈
             0.75 * abs(rf["Ex"][1, 1, 1]) + 0.25 * abs(rf["Ex"][2, 1, 1])
     end
 

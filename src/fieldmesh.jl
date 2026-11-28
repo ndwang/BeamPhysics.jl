@@ -401,24 +401,28 @@ end
 
 """
     interpolator(fm::FieldMesh, key::String)
+    interpolator(fm::FieldMesh, data::AbstractArray{<:Number,3})
 
-Build a reusable linear interpolator for `fm[key]`. Call it as `itp(x, y, z)`
+Build a reusable linear interpolator for a named field quantity or an array
+on the same grid, such as `abs.(fm["Ez"])`. Call it as `itp(x, y, z)`
 for rectangular meshes or `itp(r, theta, z)` for cylindrical meshes. A
 singleton axis accepts only its stored coordinate. Queries outside the grid
 throw `BoundsError`.
 
 Rebuild the interpolator after changing the mesh.
 """
-function interpolator(fm::FieldMesh, key::String)
-    dat = fm[key]
+interpolator(fm::FieldMesh, key::String) = interpolator(fm, fm[key])
+
+function interpolator(fm::FieldMesh, data::AbstractArray{<:Number,3})
+    size(data) == fm.grid_size || throw(DimensionMismatch("field array must match grid size $(fm.grid_size)"))
     ranges = ntuple(i -> _axis_range(fm, i), 3)
     singleton = map(r -> length(r) == 1, ranges)
     modes = map(s -> s ? Interpolations.NoInterp() :
                          Interpolations.BSpline(Interpolations.Linear()), singleton)
     grid = ntuple(3) do i
-        singleton[i] ? axes(dat, i) : ranges[i]
+        singleton[i] ? axes(data, i) : ranges[i]
     end
-    itp = Interpolations.scale(Interpolations.interpolate(dat, modes), grid...)
+    itp = Interpolations.scale(Interpolations.interpolate(data, modes), grid...)
     return function (x::Real, y::Real, z::Real)
         point = (x, y, z)
         indices = ntuple(3) do i
@@ -431,12 +435,13 @@ function interpolator(fm::FieldMesh, key::String)
 end
 
 """
-    interpolate(fm::FieldMesh, key::String, point::NTuple{3,Real})
+    interpolate(fm::FieldMesh, component_or_array, point::NTuple{3,Real})
 
 Linearly interpolate a field at one point in the mesh's native coordinates.
 Use `interpolator` to evaluate multiple points without rebuilding.
 """
-interpolate(fm::FieldMesh, key::String, point::NTuple{3,Real}) = interpolator(fm, key)(point...)
+interpolate(fm::FieldMesh, component_or_array, point::NTuple{3,Real}) =
+    interpolator(fm, component_or_array)(point...)
 
 # ── I/O ───────────────────────────────────────────────────────────────────
 
