@@ -53,6 +53,18 @@ using AtomicAndPhysicalConstants: Species, massof
             @test pg.id == [1, 2, 3]
         end
 
+        @testset "column lengths match x" begin
+            v = zeros(2)
+            columns = (; x=v, px=v, y=v, py=v, z=v, pz=v, t=v,
+                       status=[1, 1], weight=ones(2), species=Species("electron"))
+            @test_throws DimensionMismatch ParticleGroup(; columns..., px=[3.0])
+            @test_throws DimensionMismatch ParticleGroup(; columns..., status=[1])
+            @test_throws DimensionMismatch ParticleGroup(; columns..., id=[1])
+            @test_throws DimensionMismatch ParticleGroup(; columns..., extra=Dict(:spin_x => zeros(3)))
+            spin = [0.5, -0.5]
+            @test ParticleGroup(; columns..., extra=Dict(:spin_x => spin)).extra[:spin_x] === spin
+        end
+
         @testset "single_particle with defaults" begin
             pg = single_particle()
 

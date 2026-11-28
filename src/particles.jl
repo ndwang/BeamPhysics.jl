@@ -33,12 +33,35 @@ struct ParticleGroup{T<:Real, I<:Integer,
     species::Species
     id::AId
     extra::Dict{Symbol, AbstractVector}
+
+    function ParticleGroup{T,I,AT,AI,AId}(x, px, y, py, z, pz, t, status, weight, species, id, extra) where {T,I,AT,AI,AId}
+        pg = new{T,I,AT,AI,AId}(x, px, y, py, z, pz, t, status, weight, species, id, extra)
+        n = length(pg.x)
+        for name in (:px, :y, :py, :z, :pz, :t, :status, :weight, :id)
+            len = length(getfield(pg, name))
+            len == n || throw(DimensionMismatch("column $name has length $len; expected $n to match x"))
+        end
+        for (name, column) in pg.extra
+            len = length(column)
+            len == n || throw(DimensionMismatch("extra column $name has length $len; expected $n to match x"))
+        end
+        return pg
+    end
+end
+
+function ParticleGroup(x::AT, px::AT, y::AT, py::AT, z::AT, pz::AT, t::AT,
+                       status::AI, weight::AT, species::Species, id::AId,
+                       extra::Dict{Symbol, AbstractVector}) where {
+                       T<:Real, I<:Integer, AT<:AbstractVector{T},
+                       AI<:AbstractVector{I}, AId<:AbstractVector{<:Integer}}
+    return ParticleGroup{T,I,AT,AI,AId}(x, px, y, py, z, pz, t, status, weight, species, id, extra)
 end
 
 """
     ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species, id=collect(1:length(x)), extra=Dict{Symbol, AbstractVector}())
 
-Construct a particle group from named columns. Arrays are stored without copying.
+Construct a particle group from named columns. Every column must have one entry
+per particle, including IDs and optional columns. Arrays are stored without copying.
 """
 function ParticleGroup(; x, px, y, py, z, pz, t, status, weight, species,
                        id=collect(1:length(x)), extra=Dict{Symbol, AbstractVector}())
