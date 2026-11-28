@@ -459,8 +459,7 @@ function _to_data_dict(fm::FieldMesh)
         "RFphase" => fm.rf_phase,
         "fieldScale" => fm.field_scale,
     ))
-    components = Dict{String, Array}(k => v for (k, v) in fm.components)
-    return Dict{String, Any}("attrs" => attrs, "components" => components)
+    return Dict{String, Any}("attrs" => attrs, "components" => fm.components)
 end
 
 """
@@ -472,7 +471,7 @@ function write_fieldmesh(filename::AbstractString, fm::FieldMesh)
     h5open(filename, "w") do h5
         pmd_field_init(h5)
         g = create_group(h5, "ExternalFieldPath/1")
-        write_pmd_field(g, _to_data_dict(fm))
+        write_fieldmesh(g, fm)
     end
 end
 
