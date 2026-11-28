@@ -402,9 +402,9 @@ function ParticleGroup(h5::Union{HDF5.Group,HDF5.File}; include_time_offset=true
     end
 
     attributes = attrs(h5)
-    species = Species(attributes["speciesType"])
-    n_particle = _to_scalar(Int, attributes["numParticles"])
-    total_charge = attributes["totalCharge"] * attributes["chargeUnitSI"]
+    species = Species(_scalar_attr(attributes["speciesType"]))
+    n_particle = Int(_scalar_attr(attributes["numParticles"]))
+    total_charge = _scalar_attr(attributes["totalCharge"]) * _scalar_attr(attributes["chargeUnitSI"])
 
     x = particle_array(h5, "x")
     px = particle_array(h5, "px")

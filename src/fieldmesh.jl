@@ -91,10 +91,10 @@ function FieldMesh(h5::HDF5.Group)
     grid_spacing = NTuple{3, Float64}(a["gridSpacing"])
     grid_size = NTuple{3, Int}(a["gridSize"])
     ele_anchor_pt = String(a["eleAnchorPt"])
-    harmonic = _to_scalar(Int, a["harmonic"])
-    fundamental_frequency = _to_scalar(Float64, a["fundamentalFrequency"])
-    rf_phase = _to_scalar(Float64, a["RFphase"])
-    field_scale = _to_scalar(Float64, a["fieldScale"])
+    harmonic = Int(a["harmonic"])
+    fundamental_frequency = Float64(a["fundamentalFrequency"])
+    rf_phase = Float64(a["RFphase"])
+    field_scale = Float64(a["fieldScale"])
 
     components = Dict{String, Array{<:Number, 3}}()
     for (record, comp_names) in FIELD_RECORD_COMPONENTS
@@ -130,10 +130,6 @@ function FieldMesh(geometry, axis_labels, grid_origin, grid_spacing, grid_size,
                      ele_anchor_pt, harmonic, fundamental_frequency, rf_phase,
                      field_scale, components, Dict{String, Any}("gridLowerBound" => [0, 0, 0]))
 end
-
-"""Extract a scalar from a value that might be a 1-element array."""
-_to_scalar(T, x::AbstractArray) = T(only(x))
-_to_scalar(T, x) = T(x)
 
 # ── Grid accessors ────────────────────────────────────────────────────────
 

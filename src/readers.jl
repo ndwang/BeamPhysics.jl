@@ -91,14 +91,18 @@ const OPTIONAL_PARTICLE_COLUMNS = (:s, :ix_branch, :ix_ele, :location, :p0c,
                                    :spin_x, :spin_y, :spin_z, :charge_state)
 const REVERSED_FIELD_AXES = (("z", "y", "x"), ("z", "theta", "r"))
 
+# Some HDF5 writers encode scalar attributes as one-element arrays.
+_scalar_attr(x::AbstractArray) = only(x)
+_scalar_attr(x) = x
+
 """
     particle_paths(h5; key="particlesPath")
 
 Uses the basePath and particlesPath to find where openPMD particles should be.
 """
 function particle_paths(h5::Union{HDF5.File,HDF5.Group}; key="particlesPath")
-    basePath = String(attrs(h5)["basePath"])
-    particlesPath = String(attrs(h5)[key])
+    basePath = String(_scalar_attr(attrs(h5)["basePath"]))
+    particlesPath = String(_scalar_attr(attrs(h5)[key]))
 
     # "." and "./" mean current directory in openPMD; HDF5.jl cannot resolve them
     if particlesPath in (".", "./")
@@ -125,7 +129,7 @@ function field_paths(h5; key="externalFieldPath")
         return String[]
     end
 
-    fpath = String(attrs(h5)[key])
+    fpath = String(_scalar_attr(attrs(h5)[key]))
 
     if !occursin("%T", fpath)
         return [fpath]
@@ -151,8 +155,8 @@ end
 Get value from constant component.
 """
 function constant_component_value(h5)
-    unitSI = _to_scalar(Float64, attrs(h5)["unitSI"])
-    val = attrs(h5)["value"]
+    unitSI = _scalar_attr(attrs(h5)["unitSI"])
+    val = _scalar_attr(attrs(h5)["value"])
     return unitSI == 1.0 ? val : val * unitSI
 end
 
@@ -172,7 +176,7 @@ Parameters:
   * ("r", "theta", "z")
 """
 function component_data(h5; slice=:, unit_factor=1, axis_labels=nothing)
-    factor = _to_scalar(Float64, get(attrs(h5), "unitSI", 1)) * unit_factor
+    factor = Float64(_scalar_attr(get(attrs(h5), "unitSI", 1))) * unit_factor
     if is_constant_component(h5)
         dims = Tuple(Int.(attrs(h5)["shape"]))
         indices = slice isa Tuple ? slice : (slice,)
@@ -180,7 +184,7 @@ function component_data(h5; slice=:, unit_factor=1, axis_labels=nothing)
         checkbounds(CartesianIndices(dims), indices...)
         shape = Tuple(i isa Colon ? dims[k] : length(i)
                       for (k, i) in enumerate(indices) if !(i isa Integer))
-        value = attrs(h5)["value"]
+        value = _scalar_attr(attrs(h5)["value"])
         dat = isempty(shape) ? value : fill(value, shape)
     elseif ndims(h5) == 1
         dat = slice isa Colon ? read(h5) : h5[slice]
@@ -188,7 +192,7 @@ function component_data(h5; slice=:, unit_factor=1, axis_labels=nothing)
         isnothing(axis_labels) && throw(ArgumentError("axis_labels required for multidimensional arrays"))
         # HDF5.jl exposes the file axes in reverse. A reversed openPMD field
         # layout cancels that reversal; all other layouts need one transpose.
-        legacy_f = get(attrs(h5), "gridDataOrder", "") == "F"
+        legacy_f = _scalar_attr(get(attrs(h5), "gridDataOrder", "")) == "F"
         reverse_axes = !(legacy_f || Tuple(axis_labels) in REVERSED_FIELD_AXES)
         if slice isa Colon
             dat = read(h5)
@@ -366,13 +370,14 @@ function load_field_attrs(attr; verbose=false)
 
     # Required
     for k in REQUIRED_FIELD_ATTRS
-        attrs[k] = pop!(a, k)
+        value = pop!(a, k)
+        attrs[k] = k in ("eleAnchorPt", "gridGeometry", "harmonic") ? _scalar_attr(value) : value
     end
 
     # Optional, filling in some defaults
     for (k, v) in OPTIONAL_FIELD_ATTRS
         if haskey(a, k)
-            attrs[k] = pop!(a, k)
+            attrs[k] = _scalar_attr(pop!(a, k))
         elseif !isnothing(v)
             attrs[k] = v
         end

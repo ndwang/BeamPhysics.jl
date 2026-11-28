@@ -17,6 +17,34 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
 
 @testset "I/O (openPMD)" begin
 
+    @testset "Bmad one-element scalar attributes" begin
+        mktempdir() do dir
+            file = joinpath(dir, "particles.h5")
+            pg = single_particle(pz=1e6, status=Int32(1), weight=2e-12)
+            write_particle_group(file, pg)
+            h5open(file, "r+") do h5
+                g = h5["data/1/electron"]
+                for (node, keys) in ((h5, ("basePath", "particlesPath")),
+                                     (g, ("speciesType", "numParticles", "totalCharge", "chargeUnitSI")),
+                                     (g["weight"], ("value", "unitSI", "unitSymbol")),
+                                     (g["particleStatus"], ("value",)))
+                    for key in keys
+                        value = attrs(node)[key]
+                        HDF5.delete_attribute(node, key)
+                        attrs(node)[key] = [value]
+                    end
+                end
+                @test constant_component_value(g["particleStatus"]) === Int32(1)
+                @test particle_array(g, "status"; slice=1) === Int32(1)
+                @test read_unit_h5(g["weight"]).symbol == "C"
+            end
+            restored = ParticleGroup(file)
+            @test restored.status isa Vector{Int32}
+            @test restored.status == pg.status
+            @test restored.weight == pg.weight
+        end
+    end
+
     # External fixtures from Python openPMD-beamphysics (3110930). h5py writes
     # the particle IDs as UInt64, including one above the signed 64-bit range.
     @testset "Python openPMD files" begin
