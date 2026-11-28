@@ -74,6 +74,15 @@ sample. Changing `fm.field_scale` or `fm.rf_phase` leaves the profile intact.
 At zero scale all physical samples are zero. To edit the profile then, use
 `fm.components[:Ez]` directly or restore a nonzero scale before editing `fm.Ez`.
 
+For example, to reduce the stored longitudinal electric field by 2% across
+one transverse plane of an RF cavity, edit that plane in the profile array.
+This also works with the cavity switched off.
+
+```julia
+k = cld(fm.grid_size[3], 2)     # middle z plane
+fm.components[:Ez][:, :, k] .*= 0.98
+```
+
 ## Grid Information
 
 As in Python `beamphysics`, coordinate vectors start at `gridOriginOffset` and
@@ -125,6 +134,7 @@ Bz = bz(radius, theta_grid, z)
 ```
 
 For a single sample use `interpolate(fm, :Bz, (radius, theta_grid, z))`.
+Rebuild a reusable interpolator after changing the profile, scale, phase, or grid.
 Both [`interpolator`](@ref) and [`interpolate`](@ref) also accept grid arrays.
 For a complex RF map, `interpolate(fm, abs.(fm.Ez), point)` interpolates the
 amplitude of the grid samples. Use `abs(interpolate(fm, :Ez, point))` for the

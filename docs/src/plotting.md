@@ -34,6 +34,10 @@ See [`density_plot`](@ref), [`marginal_plot`](@ref), [`slice_plot`](@ref),
 
 ## Field Mesh Plots
 
+Both plotting functions use the physical fields at the mesh's current scale
+and RF phase. After changing a setting or editing the profile, call the plot
+function again to see the result. See [Scaling an RF field map](@ref).
+
 ```julia
 # 2D field plot (slice through the mesh)
 fieldmesh_plot(fm)                             # auto-detects :B or :E
