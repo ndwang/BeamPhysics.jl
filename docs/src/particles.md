@@ -39,13 +39,17 @@ pg[1:100]        # first 100 particles (returns a copy)
 view(pg, 1:100)  # non-owning view into the first 100 particles
 ```
 
-See [`ParticleGroupView`](@ref).
+Indexing a [`ParticleGroupView`](@ref), including a slice returned by `slices`,
+produces another view. Edits affect the parent particles. Use `copy(slice)` for an independent group.
 
 ## Joining
 
 ```julia
 pg3 = pg1 + pg2  # concatenate two ParticleGroups of the same species
 ```
+
+Joining preserves particle IDs, including duplicates. It drops optional columns
+that appear in only one group and warns which columns it dropped.
 
 ## In-place Operations
 

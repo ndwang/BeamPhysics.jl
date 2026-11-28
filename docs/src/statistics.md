@@ -50,6 +50,10 @@ See [`norm_emit_calc`](@ref) in the [API Reference](@ref api).
 
 ## Twiss Parameters
 
+`twiss(pg)` corrects for dispersion and requires a nonzero spread in total momentum.
+For a monoenergetic beam, use `twiss_calc` with the 2×2 covariance matrix of
+`x` and `px/p0c` to get projected horizontal Twiss parameters.
+
 ```julia
 # From a ParticleGroup
 twiss(pg; plane=:x).beta
