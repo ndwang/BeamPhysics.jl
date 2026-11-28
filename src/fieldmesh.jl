@@ -15,7 +15,8 @@ end
     FieldMesh(filename::AbstractString)
     FieldMesh(group::HDF5.Group)
     FieldMesh(; geometry, grid_origin, grid_spacing, grid_size, components,
-              ele_anchor_pt, harmonic, fundamental_frequency, metadata=Dict{String,Any}())
+              ele_anchor_pt, harmonic, fundamental_frequency, field_scale=1.0,
+              rf_phase=0.0, component_units=Dict(), metadata=Dict())
 
 A rectangular (`x, y, z`) or cylindrical (`r, theta, z`) grid of physical
 electric (V/m) and magnetic (T) field samples. The grid origin, spacing,
@@ -24,10 +25,12 @@ the azimuth is in radians. The harmonic and fundamental frequency (Hz) define
 the operating frequency.
 
 Access native components as properties, for example `fm.Bz` or `fm.Etheta`.
-The three-dimensional arrays are mutable. An omitted native component starts
-at zero and is allocated when accessed. For construction from arrays, pass
-a dictionary such as `Dict(:Bz => bz)` holding physical samples. HDF5 loading
-applies the file's field scale and RF phase once.
+These are writable physical-field views of the unscaled arrays in `fm.components`.
+Set `fm.field_scale` to change the overall amplitude and `fm.rf_phase` to
+change phase in turns. Edit `fm.components[:Bz]` to change the underlying profile,
+including while the scale is zero. Omitted native components read as zero.
+Constructor arrays use SI units by default. Use `component_units` to specify
+the units of stored samples.
 
 ```julia
 fm = FieldMesh("solenoid.h5")
@@ -44,16 +47,35 @@ mutable struct FieldMesh
     ele_anchor_pt::String
     harmonic::Int
     fundamental_frequency::Float64
+    field_scale::Float64
+    rf_phase::Float64
     const components::Dict{Symbol, Array{<:Number, 3}}
+    const component_units::Dict{Symbol, PMDUnit}
     const metadata::Dict{String, Any}
 
     function FieldMesh(; geometry, grid_origin, grid_spacing, grid_size, components,
-                       ele_anchor_pt, harmonic, fundamental_frequency, metadata=Dict{String,Any}())
+                       ele_anchor_pt, harmonic, fundamental_frequency, metadata=Dict{String,Any}(),
+                       field_scale=get(metadata, "fieldScale", 1.0), rf_phase=get(metadata, "RFphase", 0.0),
+                       component_units=Dict{Symbol,PMDUnit}())
         _check_field_components(geometry, grid_size, components)
-        file_attrs = merge(Dict{String,Any}("gridLowerBound" => [0, 0, 0],
-                                            "fieldScale" => 1.0, "RFphase" => 0.0), metadata)
+        profiles = Dict{Symbol, Array{<:Number,3}}()
+        for (name, data) in components
+            # Physical writes can be fractional, and RF writes can change either quadrature.
+            T = float(eltype(data))
+            sample_type = iszero(harmonic) ? T : complex(T)
+            profiles[name] = convert(Array{sample_type,3}, data)
+        end
+        for (name, unit) in component_units
+            name in _native_components(geometry) || throw(ArgumentError("Unknown $geometry component $name"))
+            unit.dims == pg_units(String(name)).dims ||
+                throw(ArgumentError("$name has incompatible unitDimension $(unit.dims)"))
+        end
+        file_attrs = merge(Dict{String,Any}("gridLowerBound" => [0, 0, 0]), metadata)
+        delete!(file_attrs, "fieldScale")
+        delete!(file_attrs, "RFphase")
         return new(geometry, AXIS_LABELS_FROM_GEOMETRY[geometry], grid_origin, grid_spacing,
-                   grid_size, ele_anchor_pt, harmonic, fundamental_frequency, components, file_attrs)
+                   grid_size, ele_anchor_pt, harmonic, fundamental_frequency, field_scale, rf_phase,
+                   profiles, component_units, file_attrs)
     end
 end
 
@@ -65,12 +87,64 @@ function _check_field_components(geometry, grid_size, components)
     end
 end
 
+# Look up scale and phase on the mesh so a retained view follows a voltage or phase scan.
+struct PhysicalFieldView{T,A} <: AbstractArray{T,3}
+    mesh::FieldMesh
+    component::Symbol
+    samples::A
+    unit_scale::Float64
+end
+
+Base.size(v::PhysicalFieldView) = v.mesh.grid_size
+Base.IndexStyle(::Type{<:PhysicalFieldView}) = IndexLinear()
+_samples(v::PhysicalFieldView) = v.samples
+_samples(v::PhysicalFieldView{T,Nothing}) where {T} = get(v.mesh.components, v.component, nothing)
+function _field_gain(v::PhysicalFieldView{T}) where {T}
+    scale = v.mesh.field_scale * v.unit_scale
+    phase = v.mesh.rf_phase
+    iszero(phase) && return scale
+    # A retained real view of a static map continues to give the in-phase field.
+    return T <: Real ? scale * cospi(2 * phase) : scale * cispi(-2 * phase)
+end
+
+@inline function Base.getindex(v::PhysicalFieldView{T}, i::Int) where {T}
+    @boundscheck checkbounds(v, i)
+    samples = _samples(v)
+    isnothing(samples) && return zero(eltype(v))
+    value = @inbounds samples[i]
+    profile = is_static(v.mesh) ? real(value) : value
+    return convert(T, _field_gain(v) * profile)
+end
+
+function Base.setindex!(v::PhysicalFieldView, value, i::Int)
+    @boundscheck checkbounds(v, i)
+    gain = _field_gain(v)
+    if iszero(gain)
+        iszero(value) && return value
+        throw(ArgumentError("Set a nonzero field scale before writing a nonzero physical field, or edit fm.components directly"))
+    end
+    samples = _samples(v)
+    if isnothing(samples)
+        iszero(value) && return value
+        samples = v.mesh.components[v.component] =
+            zeros(is_static(v.mesh) ? Float64 : ComplexF64, size(v))
+    end
+    sample = value / gain
+    if is_static(v.mesh) && eltype(samples) <: Complex
+        # Static files can store a complex record. Only its real channel is physical.
+        sample = complex(convert(real(eltype(samples)), sample), imag(samples[i]))
+    end
+    samples[i] = sample
+    return value
+end
+
 function _field_component(fm::FieldMesh, name::Symbol)
     name in _native_components(fm.geometry) ||
         throw(ArgumentError("$name is not a native $(fm.geometry) field component"))
-    return get!(fm.components, name) do
-        zeros(is_static(fm) ? Float64 : ComplexF64, fm.grid_size)
-    end
+    samples = get(fm.components, name, nothing)
+    unit = get(fm.component_units, name, nothing)
+    T = is_static(fm) && iszero(fm.rf_phase) ? Float64 : ComplexF64
+    return PhysicalFieldView{T,typeof(samples)}(fm, name, samples, isnothing(unit) ? 1.0 : unit.scale)
 end
 
 function Base.getproperty(fm::FieldMesh, name::Symbol)
@@ -97,10 +171,6 @@ function FieldMesh(filename::AbstractString)
     end
 end
 
-function _file_field_factor(scale, rf_phase)
-    return iszero(rf_phase) ? scale : scale * cispi(-2 * rf_phase)
-end
-
 """
     FieldMesh(h5::HDF5.Group)
 
@@ -117,30 +187,23 @@ function FieldMesh(h5::HDF5.Group)
     ele_anchor_pt = String(a["eleAnchorPt"])
     harmonic = Int(a["harmonic"])
     fundamental_frequency = Float64(a["fundamentalFrequency"])
-    file_factor = _file_field_factor(a["fieldScale"], a["RFphase"])
-
+    component_units = Dict{Symbol, PMDUnit}()
     components = Dict{Symbol, Array{<:Number, 3}}()
     for (component, path) in FIELD_RECORD_FROM_COMPONENT
         haskey(h5, path) || continue
         node = h5[path]
-        record = first(split(path, '/'))
-        dim = Tuple(attrs(node)["unitDimension"])
-        dim == EXPECTED_RECORD_UNIT_DIMENSION[record] ||
-            throw(ArgumentError("$path has incompatible unitDimension $dim"))
-        samples = component_data(node; axis_labels=file_axes)
-        if iszero(harmonic) && !(eltype(samples) <: Real)
-            samples = real.(samples)
-        end
-        components[component] = isone(file_factor) ? samples : file_factor .* samples
+        component_units[component] = read_unit_h5(node)
+        components[component] = _component_samples(node, :, file_axes)
     end
 
-    for key in ("gridLowerBound", "name", "gridCurvatureRadius", "masterParameter", "fieldScale", "RFphase")
+    for key in ("gridLowerBound", "name", "gridCurvatureRadius", "masterParameter")
         if haskey(a, key)
             metadata[key] = a[key]
         end
     end
     return FieldMesh(; geometry, grid_origin, grid_spacing, grid_size, ele_anchor_pt,
-                     harmonic, fundamental_frequency, components, metadata)
+                     harmonic, fundamental_frequency, field_scale=a["fieldScale"],
+                     rf_phase=a["RFphase"], components, component_units, metadata)
 end
 
 # ── Grid accessors ────────────────────────────────────────────────────────
@@ -261,7 +324,7 @@ is_static(fm::FieldMesh) = fm.harmonic == 0
 True if there are no non-zero magnetic field components.
 """
 function is_pure_electric(fm::FieldMesh)
-    return all(!startswith(string(k), "B") || all(iszero, v) for (k, v) in fm.components)
+    return all(k -> !startswith(string(k), "B") || all(iszero, _field_component(fm, k)), keys(fm.components))
 end
 
 """
@@ -270,7 +333,7 @@ end
 True if there are no non-zero electric field components.
 """
 function is_pure_magnetic(fm::FieldMesh)
-    return all(!startswith(string(k), "E") || all(iszero, v) for (k, v) in fm.components)
+    return all(k -> !startswith(string(k), "E") || all(iszero, _field_component(fm, k)), keys(fm.components))
 end
 
 """
@@ -281,11 +344,7 @@ field in the native basis. Complex RF components contribute their squared moduli
 """
 function field_magnitude(fm::FieldMesh, field::Symbol)
     field in (:E, :B) || throw(ArgumentError("Expected :E or :B, got $field"))
-    # Scalar zeros broadcast over the stored arrays without allocating missing components.
-    a, b, c = map(axis -> get(fm.components, Symbol(field, axis), 0), fm.axis_labels)
-    if a isa Number && b isa Number && c isa Number
-        return zeros(fm.grid_size)
-    end
+    a, b, c = map(axis -> _field_component(fm, Symbol(field, axis)), fm.axis_labels)
     return hypot.(a, b, c)
 end
 
@@ -352,20 +411,11 @@ function _to_data_dict(fm::FieldMesh)
         "eleAnchorPt" => fm.ele_anchor_pt,
         "harmonic" => fm.harmonic,
         "fundamentalFrequency" => fm.fundamental_frequency,
-        "RFphase" => get(fm.metadata, "RFphase", 0.0),
-        "fieldScale" => get(fm.metadata, "fieldScale", 1.0),
+        "RFphase" => fm.rf_phase,
+        "fieldScale" => fm.field_scale,
     ))
-    # A map originally scaled to zero may now contain edited, nonzero fields.
-    if iszero(attrs["fieldScale"]) && any(data -> any(!iszero, data), values(fm.components))
-        attrs["fieldScale"] = 1.0
-    end
-    file_factor = _file_field_factor(attrs["fieldScale"], attrs["RFphase"])
-    components = Dict{String, Any}()
-    for (key, data) in fm.components
-        path = FIELD_RECORD_FROM_COMPONENT[key]
-        components[path] = isone(file_factor) || iszero(file_factor) ? data : data ./ file_factor
-    end
-    return Dict{String, Any}("attrs" => attrs, "components" => components)
+    return Dict{String, Any}("attrs" => attrs, "components" => fm.components,
+                             "component_units" => fm.component_units)
 end
 
 """
@@ -406,8 +456,11 @@ function Base.:(==)(a::FieldMesh, b::FieldMesh)
     a.ele_anchor_pt == b.ele_anchor_pt || return false
     a.harmonic == b.harmonic || return false
     a.fundamental_frequency == b.fundamental_frequency || return false
+    a.field_scale == b.field_scale && a.rf_phase == b.rf_phase || return false
     a.metadata == b.metadata || return false
     for name in _native_components(a.geometry)
+        default_unit = pg_units(String(name))
+        get(a.component_units, name, default_unit) == get(b.component_units, name, default_unit) || return false
         x = get(a.components, name, nothing)
         y = get(b.components, name, nothing)
         x === y && continue
@@ -423,5 +476,5 @@ end
 Base.copy(fm::FieldMesh) = FieldMesh(;
     fm.geometry, fm.grid_origin, fm.grid_spacing, fm.grid_size, fm.ele_anchor_pt,
     fm.harmonic, fm.fundamental_frequency, components=deepcopy(fm.components),
-    metadata=deepcopy(fm.metadata),
+    fm.field_scale, fm.rf_phase, component_units=copy(fm.component_units), metadata=deepcopy(fm.metadata),
 )

@@ -138,7 +138,8 @@ Write field mesh data in openPMD format.
 
 `data` is a Dict with:
 - `"attrs"`: flat dict of field attributes
-- `"components"`: flat dict of component name => array
+- `"components"`: flat dict of component name => stored profile array
+- `"component_units"` (optional): dict of component name => PMDUnit, defaulting to SI
 
 See inverse routine: `load_field_attrs`
 """
@@ -159,14 +160,18 @@ function write_pmd_field(h5, data::Dict; name=nothing)
     # Write components
     reverse_axes = !(Tuple(field_attrs["axisLabels"]) in REVERSED_FIELD_AXES)
     grid_size = Tuple(field_attrs["gridSize"])
+    units = get(data, "component_units", Dict())
     for (key, val) in data["components"]
         component = get(FIELD_RECORD_FROM_COMPONENT, Symbol(key), key)
         haskey(FIELD_COMPONENT_FROM_RECORD, component) ||
             throw(ArgumentError("Unknown field component: $key"))
         size(val) == grid_size ||
             throw(DimensionMismatch("$key does not match gridSize"))
-        write_component_data(g, component, ComplexF64.(val);
-                             unit=pg_units(String(FIELD_COMPONENT_FROM_RECORD[component])), reverse_axes)
+        unit = get(units, key) do
+            pg_units(String(FIELD_COMPONENT_FROM_RECORD[component]))
+        end
+        samples = eltype(val) <: Complex{<:AbstractFloat} ? val : complex.(float.(val))
+        write_component_data(g, component, samples; unit, reverse_axes)
     end
 end
 

@@ -540,10 +540,10 @@ function fieldmesh_plot_onaxis(fm::FieldMesh; kwargs...)
         if cylindrical
             axis = component === :Bz && plotted_electric ? twinx(p) : p
             color = component === :Bz ? :blue : :black
-            _plot_field_profile!(axis, z, values, component; rf=!is_static(fm), color, label_axis=true)
+            _plot_field_profile!(axis, z, values, component; rf=eltype(values) <: Complex, color, label_axis=true)
             plotted_electric = component === :Ez
         else
-            _plot_field_profile!(p, z, values, component; rf=!is_static(fm))
+            _plot_field_profile!(p, z, values, component; rf=eltype(values) <: Complex)
         end
     end
     return p

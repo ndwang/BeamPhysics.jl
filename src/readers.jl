@@ -175,7 +175,15 @@ Parameters:
   * ("r", "theta", "z")
 """
 function component_data(h5; slice=:, unit_factor=1, axis_labels=nothing)
+    dat = _component_samples(h5, slice, axis_labels)
     factor = Float64(_scalar_attr(get(attrs(h5), "unitSI", 1))) * unit_factor
+    factor == 1 && return dat
+    T = eltype(dat)
+    return dat .* (T <: Union{AbstractFloat,Complex} ? convert(T, factor) : factor)
+end
+
+# Read the stored profile in native mesh order, before unit conversion.
+function _component_samples(h5, slice, axis_labels)
     if is_constant_component(h5)
         dims = Tuple(Int.(attrs(h5)["shape"]))
         indices = slice isa Tuple ? slice : (slice,)
@@ -205,9 +213,7 @@ function component_data(h5; slice=:, unit_factor=1, axis_labels=nothing)
         end
     end
 
-    factor == 1 && return dat
-    T = eltype(dat)
-    return dat .* (T <: Union{AbstractFloat,Complex} ? convert(T, factor) : factor)
+    return dat
 end
 
 """

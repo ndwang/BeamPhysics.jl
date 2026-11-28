@@ -21,7 +21,8 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
               for x in (0, 1), y in (0, 2, 4), z in (-2, 0, 2, 4)]
         rf = FieldMesh(; geometry="rectangular", grid_origin=(0.0, 0.0, -2.0),
                        grid_spacing=(1.0, 2.0, 2.0), grid_size=size(ex), ele_anchor_pt="center",
-                       harmonic=1, fundamental_frequency=1.3e9, components=Dict(:Ex => -2im .* ex))
+                       harmonic=1, fundamental_frequency=1.3e9, components=Dict(:Ex => ex),
+                       field_scale=2.0, rf_phase=0.25)
         @test interpolator(rf, rf.Ex)(0.25, 3, 1.5) == interpolator(rf, :Ex)(0.25, 3, 1.5)
         @test_throws DimensionMismatch interpolator(rf, zeros(2, 2, 2))
         @test_throws ArgumentError interpolator(rf, :grid_size)
@@ -120,13 +121,15 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         @test_throws ArgumentError fm.Bx
         @test_throws ArgumentError fm.weight
         @test size(fm.Bz) == fm.grid_size
-        @test fm.Bz === fm.components[:Bz]
+        @test fm.components[:Bz][1, 1, 241] ≈ 1.0
         @test fm.Bz[1, 1, 241] ≈ 0.06
         @test field_magnitude(fm, :B) ≈ sqrt.(abs2.(fm.Br) .+ abs2.(fm.Btheta) .+ abs2.(fm.Bz))
         @test all(iszero, field_magnitude(fm, :E))
         @test !haskey(fm.components, :Ez)
         untouched = copy(fm)
         @test all(iszero, fm.Ez)
+        fm.Ez[1] = 0
+        @test !haskey(fm.components, :Ez)
         @test fm == untouched
         fm.Ez[1] = 9.0
         @test fm.Ez[1] == 9.0
@@ -144,6 +147,42 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         @test mesh.By[1] == im
         @test_throws DimensionMismatch FieldMesh(; grid..., components=Dict(:Ex => zeros(1, 1, 1)))
         @test_throws ArgumentError FieldMesh(; grid..., components=Dict(:Er => zeros(2, 2, 2)))
+    end
+
+    @testset "Changing the solenoid scale" begin
+        fm = FieldMesh(FIELDMESH_FILE)
+        bz = fm.Bz
+        axis_profile = @view bz[1, 1, :]
+        snapshot = copy(bz)
+        center = CartesianIndex(1, 1, 241)
+        @test fm.field_scale ≈ 0.06
+        @test snapshot[center] ≈ 0.06
+
+        fm.field_scale = 0.12
+        @test bz[center] ≈ 0.12
+        @test axis_profile[241] ≈ 0.12
+        @test snapshot[center] ≈ 0.06
+        @test interpolate(fm, :Bz, (0, 0, 0)) ≈ 0.12
+        @test field_magnitude(fm, :B)[center] ≈ 0.12
+
+        bz[center] = 0.24
+        @test fm.components[:Bz][center] ≈ 2.0
+        fm.field_scale = 0
+        @test size(bz) == fm.grid_size
+        @test all(iszero, bz)
+        @test all(iszero, field_magnitude(fm, :B))
+        bz[center] = 0
+        @test_throws ArgumentError (bz[center] = 1.0)
+        fm.field_scale = 0.06
+        @test bz[center] ≈ 0.12
+
+        fm.rf_phase = 0.25
+        @test eltype(bz) === Float64
+        @test iszero(axis_profile[241])
+        @test eltype(fm.Bz) === ComplexF64
+        @test collect(fm.Bz)[center] ≈ -0.12im
+        @test only(fieldmesh_plot_onaxis(fm).series_list)[:y][241] ≈ -0.12
+        @test interpolate(fm, :Bz, (0, 0, 0)) ≈ -0.12im
     end
 
     @testset "Setters" begin
@@ -188,6 +227,8 @@ const FIELDMESH_FILE = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
             @test fm2.grid_size == fm.grid_size
             @test fm2.ele_anchor_pt == fm.ele_anchor_pt
             @test fm2.harmonic == fm.harmonic
+            @test fm2.field_scale == fm.field_scale
+            @test fm2.rf_phase == fm.rf_phase
             @test fm2.metadata == fm.metadata
             @test keys(fm2.components) == keys(fm.components)
             for k in keys(fm.components)
@@ -218,10 +259,26 @@ end
     @test startswith(ex_im[:label], "Im ") && occursin("V/m", ex_im[:label])
     @test startswith(bz_re[:label], "Re ") && startswith(bz_im[:label], "Im ")
 
+    @test fm.field_scale == 1 && fm.rf_phase == 0
     for op in (real, imag, abs)
         cut = fieldmesh_plot(fm; component=:Bz, transform=op, z=1)
         @test cut.series_list[1][:z].surf ≈ [op((1+2im)*(11 + 3xi + 2yi)) for yi in y, xi in x]
     end
+
+    bz = fm.Bz
+    fm.field_scale = 2
+    fm.rf_phase = 0.25      # one quarter turn, multiplier -2im
+    @test bz ≈ (4-2im) .* field
+    @test field_magnitude(fm, :B) ≈ abs.(bz)
+    @test interpolate(fm, :Bz, (0, 0, 1)) ≈ 11 * (4-2im)
+    rf_cut = fieldmesh_plot(fm; component=:Bz, transform=imag, z=1)
+    @test rf_cut.series_list[1][:z].surf ≈ [-2*(11 + 3xi + 2yi) for yi in y, xi in x]
+    ex_re, bz_re, bz_im = fieldmesh_plot_onaxis(fm).series_list
+    @test ex_re[:y] ≈ 2 .* (10 .+ z)
+    @test bz_re[:y] ≈ 4 .* (10 .+ z)
+    @test bz_im[:y] ≈ -2 .* (10 .+ z)
+    bz[1] = 6 - 8im
+    @test fm.components[:Bz][1] ≈ 4 + 3im
 
     # Opposite phases at neighboring samples have the same magnitude.
     fm.Ex[1, :, :] .= -im
@@ -232,7 +289,7 @@ end
     cylindrical = FieldMesh(; geometry="cylindrical", grid_origin=(0., 0., 0.), grid_spacing=(1., 0., 1.),
                             grid_size=(2, 1, 3), ele_anchor_pt="center", harmonic=1, fundamental_frequency=1e9,
                             components=Dict(:Ez => [im*(1+r+zi) for r in 0:1, t in 1:1, zi in z]))
-    cylindrical.Bz  # accessing an omitted zero field should not add a trace
+    cylindrical.Bz  # inspecting an omitted component should not add a trace
     cyl_series = only(fieldmesh_plot_onaxis(cylindrical).series_list)
     @test cyl_series[:y] ≈ 1 .+ z
     @test startswith(cyl_series[:label], "Im ")

@@ -53,8 +53,10 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
         ex = [100i + 10j + k + im*(1+i-2k) for i in 0:1, j in 0:2, k in 0:3]
         @test fm.Ex ≈ ex .* (-2im)
         @test fm.Bz ≈ fill((3 + 2im) * (-2im), size(ex))
-        @test fm.metadata["fieldScale"] == 2
-        @test fm.metadata["RFphase"] == 0.25
+        @test fm.components[:Ex] == ex
+        @test fm.components[:Bz] == fill(3 + 2im, size(ex))
+        @test fm.field_scale == 2
+        @test fm.rf_phase == 0.25
         @test fm.metadata["gridLowerBound"] == [-1, 2, 3]
         @test fm.metadata["customParameter"] == 42
         h5open(fixture("openpmd_python_rf.h5")) do h5
@@ -105,7 +107,7 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
     end
 
 
-    @testset "editing a field loaded with zero scale" begin
+    @testset "saving a disabled RF map preserves the profile" begin
         mktempdir() do dir
             file = joinpath(dir, "zero-scale.h5")
             cp(joinpath(@__DIR__, "fixtures", "openpmd_python_rf.h5"), file)
@@ -115,12 +117,51 @@ const _FIELD_FILE    = joinpath(@__DIR__, "lcls2_solenoid_fieldmesh.h5")
                 attrs(g)["fieldScale"] = 0.0
             end
             fm = FieldMesh(file)
+            expected = copy(fm.components[:Ex])
+            expected[1, 1, 2] *= 0.98
+            fm.components[:Ex][1, 1, 2] *= 0.98
+            @test any(!iszero, expected)
             @test all(iszero, fm.Ex)
-            fm.Ex[1, 1, 1] = 1 + 2im
+            @test_throws ArgumentError fm.Ex[1, 1, 1] = 1 + 2im
+            fm.Ex[1, 1, 1] = 0
             write_fieldmesh(file, fm)
             restored = FieldMesh(file)
-            @test restored.Ex ≈ fm.Ex
-            @test restored.metadata["fieldScale"] == 1.0
+            @test restored.field_scale == 0.0
+            @test restored.components[:Ex] == expected
+            @test all(iszero, restored.Ex)
+            restored.field_scale = 2.0
+            @test restored.Ex ≈ -2im .* expected
+        end
+    end
+
+    @testset "static field profile and component unit round trip" begin
+        samples = reshape(ComplexF32[1.2345 + 3im, -3.51 - 2im], 2, 1, 1)
+        millitesla = PMDUnit("mT", 1e-3, "magnetic_field")
+        fm = FieldMesh(; geometry="rectangular", grid_origin=(0, 0, 0),
+                       grid_spacing=(0.1, 0.1, 0.1), grid_size=size(samples),
+                       ele_anchor_pt="center", harmonic=0, fundamental_frequency=0,
+                       field_scale=0.37, components=Dict(:Bz => samples),
+                       component_units=Dict(:Bz => millitesla))
+        mktempdir() do dir
+            file = joinpath(dir, "field.h5")
+            write_fieldmesh(file, fm)
+            restored = FieldMesh(file)
+            @test restored.components[:Bz] == samples
+            @test eltype(restored.components[:Bz]) === ComplexF32
+            @test restored.Bz ≈ real.(samples) .* (0.37 * 1e-3)
+            @test restored.component_units[:Bz].symbol == "mT"
+            @test restored.component_units[:Bz].scale == 1e-3
+            restored.field_scale = 1.6
+            write_fieldmesh(file, restored)
+            h5open(file) do h5
+                g = h5[only(field_paths(h5))]
+                bz = g["magneticField/z"]
+                @test attrs(g)["fieldScale"] == 1.6
+                @test attrs(bz)["unitSI"] == 1e-3
+                @test attrs(bz)["unitSymbol"] == "mT"
+                @test attrs(bz)["unitDimension"] == collect(millitesla.dims)
+                @test read(bz) == permutedims(samples, (3, 2, 1))
+            end
         end
     end
 

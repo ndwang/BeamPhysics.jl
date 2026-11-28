@@ -424,7 +424,7 @@ Read unit metadata from an HDF5 handle and return a `PMDUnit`.
 function read_unit_h5(h5)
     a = attrs(h5)
     sym = String(_scalar_attr(get(a, "unitSymbol", "unknown")))
-    return PMDUnit(sym, _scalar_attr(a["unitSI"]),
+    return PMDUnit(sym, _scalar_attr(get(a, "unitSI", 1.0)),
                    NTuple{7,Float64}(a["unitDimension"]))
 end
 
